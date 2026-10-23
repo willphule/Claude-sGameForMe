@@ -163,11 +163,46 @@ export function drawDynamicTiles(ctx, level, era, cam, t) {
   const y0 = Math.max(0, Math.floor(cam.y / TILE)), y1 = Math.min(level.h - 1, Math.floor((cam.y + VIEW_H) / TILE));
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
-      if (level.get(tx, ty) === 'G') {
+      const c = level.get(tx, ty);
+      if (c === 'G') {
         const ang = era === THEN ? t * 4 : 0.4;
         drawGear(ctx, tx * TILE + 8, ty * TILE + 9, 6, ang, era);
+      } else if (c === '|') {
+        drawGate(ctx, tx * TILE, ty * TILE, level.gatesClosed, level.get(tx, ty - 1) !== '|', era);
+      } else if (c === ':') {
+        drawSeal(ctx, tx * TILE, ty * TILE, level.sealOpen, level.get(tx, ty - 1) !== ':', era);
       }
     }
+  }
+}
+
+// The arena portcullis: iron bars that drop while the boss is awake.
+function drawGate(ctx, px, py, closed, top, era) {
+  ctx.fillStyle = era === NOW ? '#1c2a2e' : '#3a2a1a';
+  if (top) ctx.fillRect(px, py, TILE, 3);
+  if (!closed) return;
+  ctx.fillStyle = era === NOW ? '#3c4c50' : '#5a5048';
+  for (let i = 1; i < TILE; i += 5) ctx.fillRect(px + i, py, 2, TILE);
+  ctx.fillRect(px, py + 7, TILE, 2);
+  ctx.fillStyle = era === NOW ? '#6a5a4a' : '#c9973f';
+  for (let i = 1; i < TILE; i += 5) ctx.fillRect(px + i, py + TILE - 3, 2, 3);
+}
+
+// The sealed brass door to the Great Bell.
+function drawSeal(ctx, px, py, open, top, era) {
+  if (open) {
+    if (top) { ctx.fillStyle = era === NOW ? '#1c2a2e' : '#3a2a1a'; ctx.fillRect(px, py, TILE, 3); }
+    return;
+  }
+  ctx.fillStyle = era === NOW ? '#2f4440' : '#8a6326';
+  ctx.fillRect(px, py, TILE, TILE);
+  ctx.fillStyle = era === NOW ? '#3f5a52' : '#c9973f';
+  ctx.fillRect(px + 2, py, 2, TILE);
+  ctx.fillRect(px + 12, py, 2, TILE);
+  if (top) {
+    ctx.fillStyle = era === NOW ? '#5fae8e' : '#ffd36b';
+    ctx.beginPath(); ctx.arc(px + 8, py + 9, 3, Math.PI, 0); ctx.fill();
+    ctx.fillRect(px + 5, py + 9, 6, 2);
   }
 }
 

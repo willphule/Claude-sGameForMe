@@ -17,16 +17,18 @@
     <div id="title" class="overlay">
       <h1>Drowned Bell</h1>
       <p class="sub">The city of Carillon sank fifty years ago, the night its great bell rang.<br>You are the first diver to go looking for it.</p>
+      <div id="menu"></div>
       <p class="start">Press <b>Jump</b> or tap to begin</p>
       <div class="controls">
         <span><b>Arrows / WASD</b> move</span>
         <span><b>Z / Space</b> jump · swim</span>
         <span><b>X / Shift</b> turn the watch</span>
+        <span><b>C / J</b> harpoon</span>
         <span><b>E / Up</b> use</span>
         <span><b>Esc</b> pause</span>
         <span><b>M</b> sound on/off</span>
       </div>
-      <p class="tiny">Best with sound on. Gamepads work too. Stage 1 of 3.</p>
+      <p class="tiny">Best with sound on. Gamepads work too.</p>
     </div>
 
     <div id="note" class="overlay hidden">
@@ -45,9 +47,9 @@
     <div id="end" class="overlay hidden">
       <h2 id="end-title"></h2>
       <p id="end-text" class="sub"></p>
-      <p class="banner">End of Stage 1</p>
+      <p id="end-banner" class="banner">End of Stage 1</p>
       <p id="end-stats" class="stats"></p>
-      <p class="tiny">Press Jump or tap to play again</p>
+      <p id="end-next" class="tiny"></p>
     </div>
 
     <button id="pause-btn" aria-label="Pause">II</button>
@@ -61,6 +63,7 @@
     </div>
     <div class="cluster right">
       <button data-action="interact" class="small" aria-label="Use">USE</button>
+      <button data-action="hook" class="hook" aria-label="Harpoon">HOOK</button>
       <button data-action="shift" class="watch" aria-label="Turn the watch">◷</button>
       <button data-action="jump" class="jump" aria-label="Jump">JUMP</button>
     </div>

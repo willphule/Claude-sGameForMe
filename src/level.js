@@ -10,6 +10,10 @@
 //   G  grinding gear (hazard in THEN, seized and harmless in NOW)
 //   @  player start   N note   C checkpoint lantern   V valve
 //   K  clockwork crawler (THEN)   J jellyfish (NOW)   E the bell (exit)
+//   O  harpoon ring (both eras)   A ring in THEN only   B ring in NOW only
+//   H  the harpoon (ability pickup)   W the Bellwright (boss)
+//   |  arena gate: open, but slams shut while the boss fight is on
+//   :  sealed door: solid until the boss is defeated
 
 export const TILE = 16;
 export const NOW = 0;
@@ -49,8 +53,8 @@ export const MAP = [
   '########################################################################################################'
 ];
 
-const OVERLAY = 'PG@NCVKJE';
-const SPAWNS = '@NCVKJE';
+const OVERLAY = 'PG@NCVKJEOABHW|:';
+const SPAWNS = '@NCVKJEOABHW';
 
 export class Level {
   constructor(rows = MAP) {
@@ -62,6 +66,8 @@ export class Level {
     this.water = []; // '' | '~' | 'D'
     this.spawns = [];
     this.flooded = false;
+    this.gatesClosed = false;   // '|' tiles
+    this.sealOpen = false;      // ':' tiles
     for (let y = 0; y < this.h; y++) {
       const row = rows[y];
       for (let x = 0; x < this.w; x++) {
@@ -87,7 +93,8 @@ export class Level {
 
   isSolid(tx, ty, era) {
     const c = this.get(tx, ty);
-    return c === '#' || (c === 'P' && era === THEN) || (c === 'F' && era === NOW);
+    return c === '#' || (c === 'P' && era === THEN) || (c === 'F' && era === NOW)
+      || (c === '|' && this.gatesClosed) || (c === ':' && !this.sealOpen);
   }
 
   isWater(tx, ty, era) {

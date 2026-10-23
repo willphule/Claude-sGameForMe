@@ -203,6 +203,11 @@ export class Sound {
     this.music.gain.setTargetAtTime(on ? 0.1 : 0.32, this.ctx.currentTime, 0.3);
   }
 
+  // During the boss fight: drums and a driving bass join the music.
+  setBoss(on) {
+    this.boss = on;
+  }
+
   toggleMute() {
     this.muted = !this.muted;
     save('drownedbell-muted', this.muted ? '1' : '0');
@@ -308,6 +313,12 @@ export class Sound {
         this.tone({ type: 'triangle', f0: midi(m + 12), dur: 0.9, vol: 0.05, attack: 0.004, when, dest: THENB });
       }
     }
+    if (this.boss) {
+      const beat = step % 2 === 0;
+      if (beat) this.tone({ f0: 130, f1: 38, dur: 0.3, vol: step % 8 === 0 ? 0.32 : 0.22, attack: 0.002, when, dest: this.music }); // kick
+      if (step % 8 === 4) this.hiss({ type: 'bandpass', f0: 1800, q: 0.8, dur: 0.18, vol: 0.18, attack: 0.002, when, dest: this.music }); // snare
+      this.tone({ type: 'sawtooth', f0: midi(chord.root + (step % 4 === 3 ? 7 : 0)), dur: eighth * 0.9, vol: 0.05, attack: 0.005, when, dest: this.music });
+    }
     // the clock in THEN: tick ... tock
     if (step % 2 === 0) {
       const tock = step % 4 === 2;
@@ -398,4 +409,75 @@ const SFX = {
     s.bellTone(midi(81), { dur: 2, vol: 0.05, when: 0.15, dest: s.sfxVerb });
   },
   ui: (s) => s.tone({ type: 'triangle', f0: 660, f1: 880, dur: 0.08, vol: 0.06 }),
+
+  // ---------- the harpoon ----------
+  hook: (s) => {
+    s.hiss({ type: 'bandpass', f0: 1500, f1: 4000, q: 2, dur: 0.12, vol: 0.18, attack: 0.002 }); // thwip
+    s.tone({ type: 'square', f0: 1800, f1: 900, dur: 0.06, vol: 0.05, when: 0.08 });              // clank
+    s.hiss({ type: 'highpass', f0: 3000, dur: 0.04, vol: 0.12, attack: 0.001, when: 0.08 });
+  },
+  hookMiss: (s) => s.tone({ type: 'square', f0: 220, f1: 180, dur: 0.05, vol: 0.04 }),
+  unhook: (s) => s.hiss({ type: 'bandpass', f0: 2500, f1: 1200, q: 2, dur: 0.08, vol: 0.08 }),
+  snap: (s) => {
+    s.tone({ type: 'sawtooth', f0: 900, f1: 200, dur: 0.15, vol: 0.06 });
+    s.hiss({ type: 'highpass', f0: 2500, dur: 0.06, vol: 0.15, attack: 0.001 });
+  },
+  pickup: (s) => {
+    [62, 66, 69, 74, 78].forEach((n, i) => s.tone({ type: 'triangle', f0: midi(n + 12), dur: 0.6, vol: 0.07, when: i * 0.07, dest: s.sfxVerb }));
+  },
+
+  // ---------- the Bellwright ----------
+  gate: (s) => {
+    s.tone({ type: 'sawtooth', f0: 70, f1: 45, dur: 0.6, vol: 0.12 });
+    s.hiss({ type: 'lowpass', f0: 600, f1: 100, dur: 0.5, vol: 0.35 });
+    for (let i = 0; i < 4; i++) s.hiss({ type: 'bandpass', f0: 1800, q: 5, dur: 0.03, vol: 0.12, attack: 0.001, when: i * 0.08 });
+  },
+  bossWake: (s) => {
+    s.tone({ type: 'sawtooth', f0: 40, f1: 80, dur: 1.8, vol: 0.12, attack: 0.6 });
+    s.bellTone(midi(38), { dur: 5, vol: 0.25, when: 0.8, dest: s.sfxVerb });
+    for (let i = 0; i < 10; i++) s.hiss({ type: 'bandpass', f0: 2200, q: 6, dur: 0.02, vol: 0.1, attack: 0.001, when: i * 0.12 });
+  },
+  windup: (s) => {
+    for (let i = 0; i < 6; i++) s.hiss({ type: 'bandpass', f0: 1800 + i * 300, q: 6, dur: 0.025, vol: 0.13, attack: 0.001, when: i * 0.1 });
+    s.tone({ type: 'sawtooth', f0: 90, f1: 180, dur: 0.7, vol: 0.06, attack: 0.1 });
+  },
+  slam: (s) => {
+    s.tone({ f0: 110, f1: 30, dur: 0.6, vol: 0.45 });
+    s.hiss({ type: 'lowpass', f0: 1200, f1: 80, dur: 0.6, vol: 0.5, attack: 0.002 });
+    s.bellTone(midi(45), { dur: 1.2, vol: 0.06 });
+  },
+  retract: (s) => s.tone({ type: 'sawtooth', f0: 60, f1: 120, dur: 0.6, vol: 0.06, attack: 0.1 }),
+  gearThrow: (s) => s.hiss({ type: 'bandpass', f0: 800, f1: 2400, q: 3, dur: 0.25, vol: 0.12 }),
+  gearBounce: (s) => s.tone({ type: 'triangle', f0: 1400 + Math.random() * 400, dur: 0.08, vol: 0.05 }),
+  tollWind: (s) => {
+    s.tone({ f0: 110, f1: 440, dur: 1.5, vol: 0.12, attack: 1.2 });
+    s.tone({ type: 'triangle', f0: 220, f1: 880, dur: 1.5, vol: 0.05, attack: 1.2 });
+  },
+  toll: (s) => {
+    s.bellTone(midi(38), { dur: 6, vol: 0.45, dest: s.sfxVerb });
+    s.bellTone(midi(38), { dur: 3, vol: 0.3 });
+    s.hiss({ type: 'lowpass', f0: 300, f1: 60, dur: 1.5, vol: 0.3 });
+  },
+  bossHurt: (s) => {
+    s.tone({ type: 'sawtooth', f0: 1200, f1: 300, dur: 0.4, vol: 0.12 });
+    s.tone({ type: 'square', f0: 600, f1: 140, dur: 0.5, vol: 0.06 });
+    s.bellTone(midi(57), { dur: 1.5, vol: 0.12 });
+    s.hiss({ type: 'highpass', f0: 2000, dur: 0.2, vol: 0.25, attack: 0.001 });
+  },
+  clang: (s) => {
+    s.bellTone(midi(81), { dur: 0.6, vol: 0.08 });
+    s.hiss({ type: 'highpass', f0: 3000, dur: 0.04, vol: 0.12, attack: 0.001 });
+  },
+  spark: (s) => s.hiss({ type: 'highpass', f0: 2500 + Math.random() * 2000, dur: 0.12, vol: 0.12, attack: 0.001 }),
+  bossDie: (s) => {
+    s.tone({ type: 'sawtooth', f0: 300, f1: 40, dur: 2.4, vol: 0.12, attack: 0.05 });
+    s.bellTone(midi(41), { dur: 4, vol: 0.2, dest: s.sfxVerb });
+  },
+  bossFall: (s) => s.hiss({ type: 'bandpass', f0: 400, f1: 1600, q: 0.7, dur: 0.8, vol: 0.15, attack: 0.3 }),
+  crash: (s) => {
+    s.tone({ f0: 90, f1: 25, dur: 1.2, vol: 0.5 });
+    s.hiss({ type: 'lowpass', f0: 2000, f1: 60, dur: 1.4, vol: 0.55, attack: 0.002 });
+    for (let i = 0; i < 8; i++) s.tone({ type: 'triangle', f0: 800 + Math.random() * 2000, dur: 0.1, vol: 0.04, when: 0.1 + i * 0.09 });
+    s.bellTone(midi(38), { dur: 4, vol: 0.18, when: 0.05, dest: s.sfxVerb });
+  },
 };

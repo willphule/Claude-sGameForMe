@@ -18,6 +18,16 @@ export const PHYS = {
   SINK: 25,
 };
 
+export const HOOK = {
+  RANGE: 150,     // how far the harpoon reaches
+  MIN: 20,        // shortest rope
+  MAX: 150,       // longest rope
+  REEL: 150,      // px/s when reeling in or out
+  PUMP: 300,      // swing push from left/right
+  MAX_V: 360,
+  RELEASE_V: 340, // letting go with jump is a full jump
+};
+
 const approach = (v, target, step) => (v < target ? Math.min(v + step, target) : Math.max(v - step, target));
 
 export class Player {
@@ -47,6 +57,55 @@ export class Player {
     this.sy = 1;
     this.stepT = 0;
     this.stepAlt = false;
+    this.hook = null;   // { anchor, len, t } while swinging on the harpoon line
+  }
+
+  attach(anchor) {
+    const d = Math.hypot(this.cx - anchor.cx, this.cy - anchor.cy);
+    this.hook = { anchor, len: Math.max(HOOK.MIN, Math.min(HOOK.MAX, d - 24, d * 0.7)), t: 0 };
+    if (this.onGround) this.vy = Math.min(this.vy, -120);
+    this.jumping = false;
+    this.events.push('hook');
+  }
+
+  detach(event = 'unhook') {
+    if (!this.hook) return;
+    this.hook = null;
+    this.events.push(event);
+  }
+
+  // Swinging: gravity and a push from left/right, then the rope pulls you back onto a circle.
+  updateHook(dt, input, level, era, dir) {
+    const h = this.hook;
+    h.t += dt;
+    if (input.down('up')) h.len = Math.max(HOOK.MIN, h.len - HOOK.REEL * dt);
+    if (input.down('down')) h.len = Math.min(HOOK.MAX, h.len + HOOK.REEL * dt);
+
+    this.vy += (this.inWater ? 350 : PHYS.GRAV) * dt;
+    this.vx += dir * HOOK.PUMP * dt;
+    if (!dir) this.vx *= 1 - 1.2 * dt; // settle when you're not pumping
+    if (this.inWater) { this.vx *= 1 - 2 * dt; this.vy *= 1 - 2 * dt; }
+
+    const ax = h.anchor.cx, ay = h.anchor.cy;
+    let nx = this.cx + this.vx * dt, ny = this.cy + this.vy * dt;
+    const dx = nx - ax, dy = ny - ay;
+    const d = Math.hypot(dx, dy);
+    if (d > h.len) {
+      // pulled in gently when reeling, so it never yanks through walls
+      const target = Math.max(h.len, d - HOOK.REEL * 2 * dt);
+      nx = ax + (dx / d) * target;
+      ny = ay + (dy / d) * target;
+    }
+    const ox = this.x, oy = this.y;
+    this.moveX(nx - this.cx, level, era);
+    this.moveY(ny - this.cy, level, era);
+    this.vx = (this.x - ox) / dt;
+    this.vy = (this.y - oy) / dt;
+    const sp = Math.hypot(this.vx, this.vy);
+    if (sp > HOOK.MAX_V) { this.vx *= HOOK.MAX_V / sp; this.vy *= HOOK.MAX_V / sp; }
+
+    // touching down lets go — unless you're climbing the line
+    if (this.onGround && h.t > 0.25 && !input.down('up')) this.detach();
   }
 
   get cx() { return this.x + this.w / 2; }
@@ -68,6 +127,21 @@ export class Player {
     this.knock = Math.max(0, this.knock - dt);
     this.invuln = Math.max(0, this.invuln - dt);
 
+    // On the harpoon line
+    if (this.hook) {
+      if (input.pressed('jump') && this.hook.t > 0.05) {
+        this.detach('release');
+        this.vy = Math.min(this.vy, 0) - HOOK.RELEASE_V;
+        this.buffer = 0;
+        this.sx = 0.8; this.sy = 1.25;
+      } else {
+        this.updateHook(dt, input, level, era, dir);
+        this.anim += dt * 4;
+        this.relax(dt);
+        return;
+      }
+    }
+
     const swimming = this.inWater && this.leap <= 0;
 
     // Horizontal movement
@@ -77,7 +151,10 @@ export class Player {
       if (swimming) accel = PHYS.SWIM_ACCEL;
       else if (this.onGround) accel = dir ? PHYS.ACCEL : PHYS.DECEL;
       else accel = PHYS.AIR_ACCEL;
-      this.vx = approach(this.vx, dir * max, accel * dt);
+      const flying = !swimming && !this.onGround && Math.abs(this.vx) > max
+        && (dir === 0 || Math.sign(dir) === Math.sign(this.vx));
+      if (flying) this.vx = approach(this.vx, Math.sign(this.vx) * max, 260 * dt); // keep some swing momentum
+      else this.vx = approach(this.vx, dir * max, accel * dt);
     }
 
     // Vertical movement
@@ -146,11 +223,15 @@ export class Player {
       this.stepT = 0.05;
     }
 
-    const relax = 1 - Math.exp(-dt * 14);
-    this.sx += (1 - this.sx) * relax;
-    this.sy += (1 - this.sy) * relax;
+    this.relax(dt);
 
     this.anim += dt * (this.onGround && Math.abs(this.vx) > 10 ? Math.abs(this.vx) / 12 : swimming ? 6 : 0);
+  }
+
+  relax(dt) {
+    const k = 1 - Math.exp(-dt * 14);
+    this.sx += (1 - this.sx) * k;
+    this.sy += (1 - this.sy) * k;
   }
 
   moveX(dx, level, era) {

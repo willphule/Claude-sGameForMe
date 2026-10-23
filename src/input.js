@@ -1,6 +1,6 @@
 // Keyboard, gamepad and touch input, merged into simple named actions.
 
-const ACTIONS = ['left', 'right', 'up', 'down', 'jump', 'shift', 'interact', 'pause'];
+const ACTIONS = ['left', 'right', 'up', 'down', 'jump', 'shift', 'interact', 'hook', 'pause'];
 
 const KEYS = {
   ArrowLeft: 'left', KeyA: 'left',
@@ -9,7 +9,8 @@ const KEYS = {
   ArrowDown: 'down', KeyS: 'down',
   KeyZ: 'jump', Space: 'jump', KeyK: 'jump',
   KeyX: 'shift', ShiftLeft: 'shift', ShiftRight: 'shift', KeyL: 'shift',
-  KeyE: 'interact', KeyC: 'interact', Enter: 'interact',
+  KeyE: 'interact', Enter: 'interact',
+  KeyC: 'hook', KeyJ: 'hook',
   Escape: 'pause', KeyP: 'pause',
 };
 
@@ -52,7 +53,8 @@ export class Input {
       if (ay > 0.5 || b(13)) this.pad.down = true;
       if (b(0)) this.pad.jump = true;
       if (b(2) || b(4) || b(5)) this.pad.shift = true;
-      if (b(1) || b(3)) this.pad.interact = true;
+      if (b(3)) this.pad.interact = true;
+      if (b(1) || b(6) || b(7)) this.pad.hook = true;
       if (b(9)) this.pad.pause = true;
     }
   }
