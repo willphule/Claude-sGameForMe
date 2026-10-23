@@ -29,6 +29,9 @@ export class Checkpoint extends Entity {
     game.checkpoint = this.spawnPoint(game);
     game.hearts = game.maxHearts;
     game.toast('Lantern lit — checkpoint');
+    game.sound.play('checkpoint');
+    game.fx.burst(this.x + 4, this.y + 3, { n: 14, speed: [20, 60], angle: -Math.PI / 2, spread: 2.2, color: '#ffc46b', kind: 'ember', g: -20, life: 1.2, size: 1 });
+    game.fx.ring(this.x + 4, this.y + 3, '255,200,100', 22, 0.5, 2);
   }
   spawnPoint(game) { return { x: this.x - 1, y: this.y + this.h - game.player.h, era: game.era }; }
   draw(ctx, game, t) {
@@ -91,15 +94,26 @@ export class Valve extends Entity {
   interact(game) {
     if (game.level.flooded) {
       game.toast(game.era === THEN ? 'Floodgate 7 is open.' : 'The valve is open — rusted in place.');
+      game.sound.play('rusted');
       return;
     }
     if (game.era === NOW) {
       game.toast('Rusted solid. It has not turned in fifty years.');
+      game.sound.play('rusted');
+      game.fx.burst(this.x + 7, this.y + 6, { n: 6, speed: [10, 30], color: '#8a5a3a', g: 60, life: 0.6, size: 1, era: NOW });
       return;
     }
     game.level.flooded = true;
     this.spin = 1.2;
-    game.shake(0.6, 3);
+    game.shake(2.2, 2);
+    game.sound.play('valve');
+    // dust shaken loose from the ceiling
+    for (let i = 0; i < 50; i++) {
+      game.fx.add({
+        x: game.cam.x + Math.random() * 480, y: game.cam.y + Math.random() * 30, vx: 0, vy: 10 + Math.random() * 30,
+        g: 40, drag: 1, life: 1.5 + Math.random() * 1.5, size: 1, color: '#a8957a', era: THEN,
+      });
+    }
     game.toast('Far below, Floodgate 7 groans open... In the NOW, something has changed.', 4.5);
   }
   draw(ctx, game, t) {
@@ -150,7 +164,12 @@ export class Crawler extends Entity {
       p.vy = -260;
       p.jumping = false;
       game.shake(0.2, 2);
-      game.burst(this.x + this.w / 2, this.y + this.h / 2, '#e0aa55', 14);
+      game.hitstop = 0.05;
+      game.sound.play('stomp');
+      // springs and cogs everywhere
+      game.fx.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 12, speed: [50, 130], angle: -Math.PI / 2, spread: 2.4, color: '#e0aa55', g: 420, life: 0.8, size: 2 });
+      game.fx.burst(this.x + this.w / 2, this.y + this.h / 2, { n: 6, speed: [30, 90], angle: -Math.PI / 2, spread: 2, color: '#d4c09a', g: 420, life: 0.8, size: 1 });
+      game.fx.ring(this.x + this.w / 2, this.y + this.h / 2, '255,220,140', 18, 0.35, 2);
     } else {
       game.hurt(this.x + this.w / 2);
     }

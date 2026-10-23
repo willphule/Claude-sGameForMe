@@ -117,6 +117,26 @@ h2 { font-size: calc(var(--s) * 16px); }
   padding: calc(var(--s) * 2px) calc(var(--s) * 4px);
 }
 
+#sound-btn {
+  position: absolute;
+  bottom: calc(var(--s) * 6px);
+  right: calc(var(--s) * 6px);
+  font-family: 'Silkscreen', monospace;
+  font-size: calc(var(--s) * 5px);
+  background: rgba(5, 15, 20, 0.55);
+  color: #9ff6ff;
+  border: 1px solid rgba(159, 246, 255, 0.3);
+  border-radius: 4px;
+  padding: calc(var(--s) * 1.5px) calc(var(--s) * 3px);
+  cursor: pointer;
+  z-index: 2;
+}
+#sound-btn.off { color: #7b8f95; border-color: rgba(255, 255, 255, 0.15); }
+
+@media (pointer: coarse) {
+  #sound-btn { top: calc(var(--s) * 34px); bottom: auto; right: calc(var(--s) * 30px); }
+}
+
 @keyframes pulse { 50% { opacity: 0.45; } }
 
 /* ---------- touch controls ---------- */
