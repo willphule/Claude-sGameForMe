@@ -4,7 +4,7 @@ import { TILE, NOW, THEN } from './level.js';
 export const overlaps = (a, b) =>
   a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
-class Entity {
+export class Entity {
   constructor(tx, ty, w, h) {
     this.w = w;
     this.h = h;
@@ -278,7 +278,73 @@ export class Bell extends Entity {
   }
 }
 
-export function spawnEntities(level) {
+// A brass ring the harpoon can bite into. era: null = both, THEN or NOW only.
+export class Anchor extends Entity {
+  constructor(tx, ty, era) {
+    super(tx, ty, 12, 12);
+    this.y = ty * TILE + 2;
+    this.era = era;
+    this.isAnchor = true;
+    this.pulse = 0;
+  }
+  get cx() { return this.x + 6; }
+  get cy() { return this.y + 6; }
+  update(game, dt) { this.pulse = Math.max(0, this.pulse - dt * 2); }
+  draw(ctx, game) {
+    const x = this.cx, y = this.cy, now = game.era === NOW;
+    // bracket into the wall above
+    ctx.fillStyle = now ? '#2d3a3a' : '#6b4a2a';
+    ctx.fillRect(Math.round(x) - 1, Math.round(y) - 9, 2, 4);
+    ctx.strokeStyle = now ? (this.era === NOW ? '#5fae8e' : '#7a6a52') : '#e0aa55';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.stroke();
+    if (this.era === NOW) {
+      ctx.fillStyle = '#d9776b';
+      ctx.fillRect(Math.round(x) + 2, Math.round(y) + 2, 2, 2); // coral growing on it
+    }
+    if (this.pulse > 0) {
+      ctx.strokeStyle = `rgba(255,240,190,${this.pulse})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x, y, 7 + (1 - this.pulse) * 6, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  // what the ring looks like from the other era
+  drawGhost(ctx, game) {
+    ctx.strokeStyle = game.era === NOW ? 'rgba(255,190,110,0.3)' : 'rgba(130,230,240,0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.arc(this.cx, this.cy, 4.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// The harpoon gun, resting where its owner left it.
+export class HarpoonPickup extends Note {
+  constructor(tx, ty, index) { super(tx, ty, index); this.w = 14; this.x -= 3; }
+  draw(ctx, game, t) {
+    const x = Math.round(this.x), y = Math.round(this.y + Math.sin(t * 2) * 2);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createRadialGradient(x + 7, y + 5, 1, x + 7, y + 5, 22);
+    g.addColorStop(0, 'rgba(255,220,140,0.45)');
+    g.addColorStop(1, 'rgba(255,220,140,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - 20, y - 20, 54, 50);
+    ctx.restore();
+    ctx.fillStyle = '#6b4a2a';
+    ctx.fillRect(x + 1, y + 5, 4, 5);          // grip
+    ctx.fillStyle = '#c9973f';
+    ctx.fillRect(x, y + 2, 12, 4);             // barrel
+    ctx.fillStyle = '#e8c070';
+    ctx.fillRect(x, y + 2, 12, 1);
+    ctx.fillStyle = '#d4dde0';
+    ctx.fillRect(x + 12, y + 3, 3, 2);         // spear tip
+    ctx.fillStyle = '#8a9aa0';
+    ctx.fillRect(x + 4, y + 6, 4, 3);          // reel
+  }
+}
+
+export function spawnEntities(level, extra = {}) {
   const list = [];
   let noteIndex = 0;
   let start = { x: 0, y: 0 };
@@ -292,6 +358,11 @@ export function spawnEntities(level) {
       case 'K': list.push(new Crawler(s.tx, s.ty)); break;
       case 'J': list.push(new Jelly(s.tx, s.ty)); break;
       case 'E': list.push(new Bell(s.tx, s.ty)); break;
+      case 'O': list.push(new Anchor(s.tx, s.ty, null)); break;
+      case 'A': list.push(new Anchor(s.tx, s.ty, THEN)); break;
+      case 'B': list.push(new Anchor(s.tx, s.ty, NOW)); break;
+      case 'H': list.push(new HarpoonPickup(s.tx, s.ty, noteIndex++)); break;
+      default: if (extra[s.type]) list.push(extra[s.type](s.tx, s.ty));
     }
   }
   return { list, start };

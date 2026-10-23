@@ -10,6 +10,15 @@ that fell after the flood blocks the way in NOW. Changes you make in THEN carry 
 
 **Play it:** https://willphule.github.io/Claude-sGameForMe/ (once GitHub Pages is turned on, see below)
 
+## Stages
+
+1. **The Drowned Quarter**: find the watch and learn to move between NOW and THEN.
+2. **The Bell Tower**: find the clockmaker's harpoon, climb the tower and face the Bellwright, a clockwork giant
+   that only wakes in THEN. When its hammer sticks in the floor, its key is exposed: get above it and land on it.
+   When it tolls, turn the watch.
+
+Finishing a stage unlocks it on the title screen, so you can continue later.
+
 ## Controls
 
 | Action | Keyboard | Gamepad | Touch |
@@ -18,7 +27,9 @@ that fell after the flood blocks the way in NOW. Changes you make in THEN carry 
 | Jump / swim up | Z / Space | A | JUMP |
 | Dive | Down / S | Down | ▼ |
 | Turn the watch (NOW ⇄ THEN) | X / Shift | X / bumpers | ◷ |
-| Use | E / Up | B / Y | USE |
+| Harpoon | C / J | B / triggers | HOOK |
+| Climb / lower the line | Up / Down | Up / Down | ▲ ▼ |
+| Use | E / Up | Y | USE |
 | Pause | Esc / P | Start | II |
 | Sound on/off | M | | SOUND button |
 
@@ -31,7 +42,7 @@ with a ticking clock for THEN. Turning the watch crossfades between them.
 ## Roadmap
 
 - [x] **Stage 1:** movement, swimming, the time-shift, one small area (rooftops → time-crossing → machine hall → floodgate shaft)
-- [ ] **Stage 2:** several connected areas, a new ability, a boss
+- [x] **Stage 2: The Bell Tower.** A courtyard, the Clockworks, a harpoon shrine, a return corridor and a tower climb, plus the harpoon and a boss, the Bellwright
 - [x] Sound effects, music, ambience and visual effects (added after Stage 1)
 - [ ] **Stage 3:** story, menus, saving, polish
 
@@ -46,8 +57,8 @@ python3 -m http.server
 Then open http://localhost:8000. Opening `index.html` directly from disk won't work, because browsers
 block JavaScript modules on `file://` pages.
 
-Developer shortcuts (URL parameters): `?map` shows the whole level in both eras, and
-`?play&watch&at=60,8&era=then` starts at a tile position with the watch.
+Developer shortcuts (URL parameters): `?map` (or `?map&stage=2`) shows a whole level in both eras, and
+`?play&stage=2&harpoon&at=60,8&era=then` starts at a tile position with abilities unlocked.
 
 ## Turning on GitHub Pages
 

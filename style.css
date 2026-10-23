@@ -137,6 +137,20 @@ h2 { font-size: calc(var(--s) * 16px); }
   #sound-btn { top: calc(var(--s) * 34px); bottom: auto; right: calc(var(--s) * 30px); }
 }
 
+#menu { display: flex; flex-direction: column; gap: calc(var(--s) * 3px); margin: 0 0 calc(var(--s) * 6px); }
+#menu:empty { display: none; }
+#menu button {
+  font-family: 'Silkscreen', monospace;
+  font-size: calc(var(--s) * 7px);
+  background: rgba(5, 15, 20, 0.5);
+  color: #a9bcc2;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: calc(var(--s) * 2.5px) calc(var(--s) * 10px);
+  cursor: pointer;
+}
+#menu button.sel { color: #ffd36b; border-color: rgba(255, 211, 107, 0.6); background: rgba(40, 30, 10, 0.5); }
+
 @keyframes pulse { 50% { opacity: 0.45; } }
 
 /* ---------- touch controls ---------- */
@@ -165,6 +179,8 @@ h2 { font-size: calc(var(--s) * 16px); }
 #touch .jump { width: 76px; height: 76px; font-size: 13px; }
 #touch .watch { font-size: 26px; color: #ffd36b; margin-bottom: 40px; }
 #touch .small { width: 48px; height: 48px; font-size: 10px; margin-bottom: 70px; }
+#touch .hook { display: none; width: 56px; height: 56px; font-size: 11px; color: #e0c070; margin-bottom: 18px; }
+#touch.has-hook .hook { display: block; }
 #touch .dive { position: absolute; left: calc(56px + env(safe-area-inset-left)); bottom: calc(92px + env(safe-area-inset-bottom)); width: 48px; height: 48px; font-size: 14px; }
 
 @media (pointer: coarse) {

@@ -1,12 +1,13 @@
 // Drowned Bell — game loop, states, camera, HUD and the time-shift.
 import { Level, TILE, NOW, THEN, ERA_NAME } from './level.js';
 import { Input } from './input.js';
-import { Player } from './player.js';
+import { Player, HOOK } from './player.js';
 import { spawnEntities, overlaps } from './entities.js';
+import { Bellwright } from './boss.js';
+import { STAGES } from './stages.js';
 import {
   VIEW_W, VIEW_H, buildTileLayer, drawBackground, drawDynamicTiles, drawWater, drawVignette, drawHeart,
 } from './render.js';
-import { NOTES, ENDING } from './story.js';
 import { Sound } from './audio.js';
 import { FX } from './fx.js';
 
@@ -19,15 +20,9 @@ const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches;
 const ENDING_TIME = 2.6;
 
-// World hints, in tile coordinates.
-const HINTS = [
-  { tx: 1.3, ty: 15.4, lines: ['ARROWS / WASD  move', 'Z / SPACE  jump', '(hold for higher)'], touch: ['Hold JUMP for', 'a higher jump'] },
-  { tx: 12, ty: 19.2, lines: ['In water: hold jump', 'to swim up'] },
-  { tx: 22.3, ty: 16.6, lines: ['X / SHIFT', 'turn the watch'], touch: ['Tap the watch', 'button'], cond: (g) => g.hasWatch },
-  { tx: 41, ty: 4.5, lines: ['The watch can be', 'turned mid-jump'], cond: (g) => g.hasWatch },
-  { tx: 38.3, ty: 18.3, lines: ['< squeeze through'] },
-  { tx: 65.2, ty: 6.5, lines: ['FLOODGATE 7', 'v  v  v'] },
-];
+const PROGRESS_KEY = 'drownedbell-progress';
+function loadProgress() { try { return Math.min(STAGES.length - 1, Number(localStorage.getItem(PROGRESS_KEY)) || 0); } catch { return 0; } }
+function saveProgress(i) { try { localStorage.setItem(PROGRESS_KEY, String(i)); } catch { /* storage unavailable */ } }
 
 class Game {
   constructor() {
@@ -35,20 +30,32 @@ class Game {
     this.sound = new Sound();
     this.state = 'title';
     this.t = 0;
-    this.newGame();
+    this.progress = loadProgress();
+    this.menuIndex = 0;
+    const devStage = Number(params.get('stage')) - 1;
+    this.loadStage(devStage >= 0 && devStage < STAGES.length ? devStage : this.progress);
   }
 
-  newGame() {
-    this.level = new Level();
+  loadStage(index) {
+    this.stageIndex = index;
+    this.stage = STAGES[index];
+    this.level = new Level(this.stage.map);
     this.layers = [buildTileLayer(this.level, NOW), buildTileLayer(this.level, THEN)];
-    const { list, start } = spawnEntities(this.level);
+    const { list, start } = spawnEntities(this.level, {
+      W: (tx, ty) => new Bellwright(tx, ty, this.stage.arena),
+    });
     this.entities = list;
+    this.boss = list.find((e) => e.isBoss) || null;
+    this.fight = false;
+    this.bannerT = 0;
     this.player = new Player(start.x, start.y);
     this.era = NOW;
     this.checkpoint = { x: start.x, y: start.y, era: NOW };
     this.maxHearts = 3;
     this.hearts = 3;
-    this.hasWatch = false;
+    this.hasWatch = !!this.stage.startWithWatch;
+    this.hasHarpoon = false;
+    this.hookTarget = null;
     this.notes = new Set();
     this.time = 0;
     this.deaths = 0;
@@ -69,8 +76,9 @@ class Game {
       for (let tx = 0; tx < this.level.w; tx++)
         if (this.level.get(tx, ty) === 'G') this.gears.push({ x: tx * TILE, y: ty * TILE });
 
-    // Developer shortcuts for testing, e.g. ?at=60,8&watch&era=then
+    // Developer shortcuts for testing, e.g. ?stage=2&at=60,8&watch&harpoon&era=then
     if (params.has('watch')) this.hasWatch = true;
+    if (params.has('harpoon')) this.hasHarpoon = true;
     if (params.has('at')) {
       const [tx, ty] = params.get('at').split(',').map(Number);
       this.player.x = tx * TILE + 3;
@@ -80,6 +88,8 @@ class Game {
     if (params.has('flooded')) this.level.flooded = true;
     this.sound.setEra(this.era, true);
     this.sound.setUnderwater(false);
+    this.sound.setBoss(false);
+    $('touch').classList.toggle('has-hook', this.hasHarpoon);
     this.snapCamera();
   }
 
@@ -88,6 +98,7 @@ class Game {
     if (s === 'paused' || (s === 'play' && this.state === 'paused')) this.sound.play('ui');
     this.sound.duck(s === 'note' || s === 'paused' || s === 'end');
     this.state = s;
+    if (s === 'title') this.buildMenu();
     $('title').classList.toggle('hidden', s !== 'title');
     $('note').classList.toggle('hidden', s !== 'note');
     $('pause').classList.toggle('hidden', s !== 'paused');
@@ -102,7 +113,9 @@ class Game {
     this.t += dt;
     switch (this.state) {
       case 'title':
-        if (inp.anyPressed('jump', 'interact', 'shift')) this.setState('play');
+        if (inp.pressed('up') || inp.pressed('left')) this.moveMenu(-1);
+        if (inp.pressed('down') || inp.pressed('right')) this.moveMenu(1);
+        if (inp.anyPressed('jump', 'interact', 'shift')) this.chooseMenu(this.menuIndex);
         break;
       case 'note':
         this.noteTimer += dt;
@@ -113,7 +126,7 @@ class Game {
         break;
       case 'end':
         this.endTimer += dt;
-        if (this.endTimer > 1 && inp.anyPressed('jump', 'interact')) this.restart();
+        if (this.endTimer > 1 && inp.anyPressed('jump', 'interact')) this.afterEnd();
         break;
       case 'play':
         this.updatePlay(dt);
@@ -156,9 +169,11 @@ class Game {
     this.fade = Math.max(0, this.fade - dt * 2.5);
 
     if (inp.pressed('shift')) this.tryShift();
+    this.updateHarpoon();
 
     p.update(dt, inp, this.level, this.era);
     this.playerEvents();
+    this.updateBossFight(dt);
 
     // Spikes and gears use a slightly smaller hitbox, to be forgiving
     const hz = this.level.rectHazard(p.x + 2, p.y + 3, p.w - 4, p.h - 3, this.era);
@@ -169,11 +184,79 @@ class Game {
       e.update(this, dt);
       if (this.state === 'play' && e.existsIn(this.era) && overlaps(p, e)) e.touch(this);
     }
+    if (this.entities.some((e) => e.dead && e.projectile)) this.entities = this.entities.filter((e) => !(e.dead && e.projectile));
 
     const near = this.nearInteractable();
     if (near && (inp.pressed('interact') || (inp.pressed('up') && !p.inWater))) near.interact(this);
 
     this.updateCamera(dt);
+  }
+
+  // ---------- the harpoon ----------
+
+  updateHarpoon() {
+    const p = this.player;
+    if (!this.hasHarpoon) { this.hookTarget = null; return; }
+    this.hookTarget = p.hook ? null : this.findAnchor();
+    if (!this.input.pressed('hook')) return;
+    if (p.hook) { p.detach('unhook'); return; }
+    const a = this.hookTarget;
+    if (!a) { this.sound.play('hookMiss'); return; }
+    p.attach(a);
+    a.pulse = 1;
+    this.sound.play('hook');
+    this.fx.burst(a.cx, a.cy, { n: 8, speed: [30, 90], color: '#ffe3a0', g: 200, life: 0.3, size: 1 });
+  }
+
+  // The best ring to fire at: in range, in sight, above-ish, preferring the way you face.
+  findAnchor() {
+    const p = this.player;
+    let best = null, bestScore = Infinity;
+    for (const e of this.entities) {
+      if (!e.isAnchor || !e.existsIn(this.era)) continue;
+      const dx = e.cx - p.cx, dy = e.cy - p.cy;
+      const d = Math.hypot(dx, dy);
+      if (d > HOOK.RANGE || dy > 8) continue;
+      if (!this.lineOfSight(p.cx, p.cy, e.cx, e.cy)) continue;
+      const score = d + (dx * p.facing < -8 ? 60 : 0);
+      if (score < bestScore) { bestScore = score; best = e; }
+    }
+    return best;
+  }
+
+  lineOfSight(x0, y0, x1, y1) {
+    const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 4);
+    for (let i = 1; i < steps - 1; i++) {
+      const x = x0 + ((x1 - x0) * i) / steps, y = y0 + ((y1 - y0) * i) / steps;
+      if (this.level.isSolid(Math.floor(x / TILE), Math.floor(y / TILE), this.era)) return false;
+    }
+    return true;
+  }
+
+  // ---------- the boss ----------
+
+  updateBossFight(dt) {
+    this.bannerT = Math.max(0, this.bannerT - dt);
+    const b = this.boss;
+    if (!b || this.fight || b.state !== 'dormant' || this.era !== THEN) return;
+    const a = this.stage.arena, p = this.player;
+    if (p.cx > a.triggerX * TILE && p.cx < (a.x1 + 1) * TILE && p.cy < (a.floor + 1) * TILE && p.cy > a.y0 * TILE) {
+      this.fight = true;
+      this.level.gatesClosed = true;
+      this.sound.play('gate');
+      this.sound.setBoss(true);
+      this.bannerT = 3;
+      b.wake(this);
+    }
+  }
+
+  onBossDefeated() {
+    this.fight = false;
+    this.level.gatesClosed = false;
+    this.level.sealOpen = true;
+    this.sound.setBoss(false);
+    this.sound.play('gate');
+    this.toast('The way to the Great Bell is open.', 4);
   }
 
   nearInteractable() {
@@ -193,6 +276,10 @@ class Game {
       this.burst(p.cx, p.cy, '#ff6a5a', 6);
       this.sound.play('blocked');
       return;
+    }
+    if (p.hook && !p.hook.anchor.existsIn(to)) {
+      p.detach('snap');
+      this.toast('The ring is not there in the ' + ERA_NAME[to] + ' — the line goes slack.', 2.5);
     }
     this.trans = { t: 0, dur: 0.45, from: this.era, to };
     this.era = to;
@@ -227,6 +314,8 @@ class Game {
       } else if (ev === 'stroke') {
         snd.play('stroke');
         fx.bubbles(p.cx - p.facing * 2, p.y + 6, 3);
+      } else if (ev === 'unhook' || ev === 'release' || ev === 'snap') {
+        snd.play(ev === 'snap' ? 'snap' : 'unhook');
       } else if (ev === 'splashIn' || ev === 'splashOut') {
         const big = ev === 'splashIn' ? Math.min(1, 0.4 + Math.abs(p.vy) / 150) : 0.5;
         snd.play('splash', big);
@@ -247,6 +336,7 @@ class Game {
   hurt(srcX) {
     const p = this.player;
     if (p.invuln > 0 || this.dying > 0) return;
+    p.detach('release');
     this.hearts--;
     p.invuln = 1.2;
     p.knock = 0.25;
@@ -281,14 +371,26 @@ class Game {
     this.trans = null;
     this.sound.setEra(c.era, true);
     this.sound.play('checkpoint');
+    if (this.fight || (this.boss && this.boss.state !== 'dormant' && this.boss.state !== 'wreck')) {
+      // a fresh attempt at the boss
+      this.fight = false;
+      this.boss.reset();
+      this.level.gatesClosed = false;
+      this.entities = this.entities.filter((e) => !e.projectile);
+      this.sound.setBoss(false);
+    }
     this.fx.ring(this.player.cx, this.player.cy, '255,211,107', 30, 0.6, 2);
     this.snapCamera();
   }
 
   collectNote(i) {
     this.notes.add(i);
-    const n = NOTES[i];
+    const n = this.stage.notes[i];
     if (n.unlocksWatch) this.hasWatch = true;
+    if (n.ability === 'harpoon') {
+      this.hasHarpoon = true;
+      $('touch').classList.add('has-hook');
+    }
     this.currentNote = n;
     this.sound.play('note');
     const p = this.player;
@@ -311,6 +413,10 @@ class Game {
     if (this.currentNote && this.currentNote.unlocksWatch) {
       this.toast(isTouch ? 'You took the watch. Tap the watch button to turn it.' : 'You took the watch. Press X or Shift to turn it.', 5);
     }
+    if (this.currentNote && this.currentNote.ability === 'harpoon') {
+      this.sound.play('pickup');
+      this.toast(isTouch ? 'You took the harpoon. Tap HOOK near a ring.' : 'You took the harpoon. Press C or J near a ring.', 5);
+    }
     this.currentNote = null;
   }
 
@@ -325,15 +431,65 @@ class Game {
     this.fx.ring(p.cx, p.cy - 6, '159,246,255', 90, 1.5, 2);
     this.fx.bubbles(p.cx, p.cy, 10);
     const m = Math.floor(this.time / 60), s = Math.floor(this.time % 60);
-    $('end-title').textContent = ENDING.title;
-    $('end-text').textContent = ENDING.text;
+    const [found, total] = this.noteCount();
+    const next = this.stageIndex + 1 < STAGES.length;
+    if (next && this.progress < this.stageIndex + 1) { this.progress = this.stageIndex + 1; saveProgress(this.progress); }
+    $('end-title').textContent = this.stage.ending.title;
+    $('end-text').textContent = this.stage.ending.text;
+    $('end-banner').textContent = `End of Stage ${this.stageIndex + 1}`;
     $('end-stats').textContent =
-      `Time ${m}:${String(s).padStart(2, '0')}  ·  Notes ${this.notes.size}/${NOTES.length}  ·  Falls ${this.deaths}`;
+      `Time ${m}:${String(s).padStart(2, '0')}  ·  Notes ${found}/${total}  ·  Falls ${this.deaths}`;
+    $('end-next').textContent = next
+      ? `Press Jump or tap to continue to Stage ${this.stageIndex + 2}`
+      : 'Stage 3 is still being written. Press Jump or tap to return to the title.';
     this.endTimer = 0; // the ending card appears when the bell sequence finishes (see updatePlay)
   }
 
-  restart() {
-    this.newGame();
+  afterEnd() {
+    if (this.stageIndex + 1 < STAGES.length) {
+      this.loadStage(this.stageIndex + 1);
+      this.setState('play');
+    } else {
+      this.loadStage(this.progress);
+      this.setState('title');
+    }
+  }
+
+  noteCount() {
+    const real = this.stage.notes.map((n, i) => (n.ability ? -1 : i)).filter((i) => i >= 0);
+    return [real.filter((i) => this.notes.has(i)).length, real.length];
+  }
+
+  // ---------- title menu ----------
+
+  buildMenu() {
+    const menu = $('menu');
+    menu.innerHTML = '';
+    this.menuItems = [];
+    for (let i = this.progress; i >= 0; i--) {
+      const label = this.progress === 0 ? 'Begin' : `Stage ${i + 1}: ${STAGES[i].name}`;
+      this.menuItems.push(i);
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.addEventListener('click', (e) => { e.stopPropagation(); this.chooseMenu(this.menuItems.indexOf(i)); });
+      menu.appendChild(b);
+    }
+    this.menuIndex = 0;
+    this.moveMenu(0);
+  }
+
+  moveMenu(d) {
+    if (!this.menuItems) return;
+    const n = this.menuItems.length;
+    if (d) this.sound.play('ui');
+    this.menuIndex = (this.menuIndex + d + n) % n;
+    [...$('menu').children].forEach((b, i) => b.classList.toggle('sel', i === this.menuIndex));
+  }
+
+  chooseMenu(i) {
+    if (this.state !== 'title') return;
+    const stage = this.menuItems ? this.menuItems[i] : 0;
+    if (stage !== this.stageIndex || this.time > 0) this.loadStage(stage);
     this.setState('play');
   }
 
@@ -361,6 +517,9 @@ class Game {
 
   camTarget() {
     const p = this.player;
+    // during the boss fight the camera frames the whole chamber
+    const a = this.stage.arena;
+    if (a && this.fight) return { x: a.x0 * TILE, y: (a.y0 - 1) * TILE };
     return { x: p.cx - VIEW_W / 2 + p.facing * 24, y: p.cy - VIEW_H / 2 - 8 };
   }
 
@@ -441,7 +600,11 @@ class Game {
     ctx.drawImage(this.layers[era], cam.x, cam.y, VIEW_W, VIEW_H, cam.x, cam.y, VIEW_W, VIEW_H);
     drawDynamicTiles(ctx, this.level, era, cam, this.t);
     this.drawHints();
-    for (const e of this.entities) if (e.existsIn(era)) e.draw(ctx, this, this.t);
+    for (const e of this.entities) {
+      if (e.existsIn(era)) e.draw(ctx, this, this.t);
+      else if (e.drawGhost && !e.dead) e.drawGhost(ctx, this);
+    }
+    this.drawRope();
 
     const near = this.state === 'play' && this.nearInteractable();
     if (near) {
@@ -477,14 +640,69 @@ class Game {
     this.era = realEra;
   }
 
+  drawRope() {
+    const p = this.player;
+    if (p.hook) {
+      const a = p.hook.anchor;
+      const hx = p.cx + p.facing * 3, hy = p.y + 7;
+      const slack = Math.max(0, p.hook.len - Math.hypot(a.cx - hx, a.cy - hy));
+      ctx.strokeStyle = '#d9c08a';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(hx, hy);
+      ctx.quadraticCurveTo((hx + a.cx) / 2, (hy + a.cy) / 2 + slack * 0.6, a.cx, a.cy);
+      ctx.stroke();
+    } else if (this.hookTarget && this.state === 'play' && this.dying <= 0) {
+      // corner brackets around the ring you would hit
+      const a = this.hookTarget, r = 8 + Math.sin(this.t * 8);
+      ctx.strokeStyle = 'rgba(255,241,192,0.85)';
+      ctx.lineWidth = 1;
+      for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        ctx.beginPath();
+        ctx.moveTo(a.cx + sx * r, a.cy + sy * (r - 3));
+        ctx.lineTo(a.cx + sx * r, a.cy + sy * r);
+        ctx.lineTo(a.cx + sx * (r - 3), a.cy + sy * r);
+        ctx.stroke();
+      }
+    }
+  }
+
   drawHints() {
     ctx.font = FONT;
     ctx.textAlign = 'left';
-    for (const h of HINTS) {
+    for (const h of this.stage.hints) {
       if (h.cond && !h.cond(this)) continue;
       const lines = isTouch && h.touch ? h.touch : h.lines;
       ctx.fillStyle = this.era === NOW ? 'rgba(190,235,245,0.7)' : 'rgba(255,230,190,0.75)';
       lines.forEach((line, i) => ctx.fillText(line, Math.round(h.tx * TILE), Math.round(h.ty * TILE + i * 10)));
+    }
+  }
+
+  drawBossHUD() {
+    const b = this.boss;
+    if (!b) return;
+    if (this.bannerT > 0) {
+      const a = Math.min(1, this.bannerT, (3 - this.bannerT) * 2);
+      ctx.textAlign = 'center';
+      ctx.font = '16px Silkscreen, monospace';
+      ctx.fillStyle = `rgba(255,207,107,${a})`;
+      ctx.fillText('THE BELLWRIGHT', VIEW_W / 2, 80);
+      ctx.font = FONT;
+      ctx.fillStyle = `rgba(230,220,200,${a * 0.8})`;
+      ctx.fillText('Keeper of the Great Bell', VIEW_W / 2, 94);
+    }
+    if (!this.fight) return;
+    const w = 160, x = VIEW_W / 2 - w / 2, y = VIEW_H - 46;
+    ctx.fillStyle = 'rgba(5,12,16,0.7)';
+    ctx.fillRect(x - 4, y - 12, w + 8, 22);
+    ctx.font = FONT;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffcf6b';
+    ctx.fillText('THE BELLWRIGHT', VIEW_W / 2, y - 3);
+    for (let i = 0; i < b.maxHp; i++) {
+      const sw = (w - (b.maxHp - 1) * 4) / b.maxHp;
+      ctx.fillStyle = i < b.hp ? '#e0aa55' : '#3a3f48';
+      ctx.fillRect(Math.round(x + i * (sw + 4)), y + 1, Math.round(sw), 5);
     }
   }
 
@@ -497,7 +715,17 @@ class Game {
     ctx.font = FONT;
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(230,240,240,0.8)';
-    ctx.fillText(`NOTES ${this.notes.size}/${NOTES.length}`, 10, 38);
+    const [found, total] = this.noteCount();
+    ctx.fillText(`NOTES ${found}/${total}`, 10, 38);
+    if (this.hasHarpoon) {
+      ctx.fillStyle = '#c9973f';
+      ctx.fillRect(10, 45, 10, 3);
+      ctx.fillStyle = '#d4dde0';
+      ctx.fillRect(20, 46, 3, 1);
+      ctx.fillStyle = 'rgba(230,240,240,0.8)';
+      ctx.fillText('HARPOON', 27, 50);
+    }
+    this.drawBossHUD();
 
     if (this.hasWatch) {
       const now = this.era === NOW;
@@ -553,10 +781,10 @@ function setupTouch(game) {
     btn.addEventListener('lostpointercapture', off);
   }
   // Tap / click the overlays to continue
-  $('title').addEventListener('click', () => game.state === 'title' && game.setState('play'));
+  $('title').addEventListener('click', () => game.state === 'title' && game.chooseMenu(game.menuIndex));
   $('note').addEventListener('click', () => game.state === 'note' && game.noteTimer > 0.35 && game.closeNote());
   $('pause').addEventListener('click', () => game.state === 'paused' && game.setState('play'));
-  $('end').addEventListener('click', () => game.state === 'end' && game.endTimer > 1 && game.restart());
+  $('end').addEventListener('click', () => game.state === 'end' && game.endTimer > 1 && game.afterEnd());
   $('pause-btn').addEventListener('click', (e) => { e.stopPropagation(); if (game.state === 'play') game.setState('paused'); });
 }
 
@@ -588,7 +816,8 @@ function setupSound(game) {
 
 function mapPreview() {
   // ?map — draws the whole level in both eras, for checking level design.
-  const level = new Level();
+  const stage = STAGES[Math.max(0, (Number(params.get('stage')) || 1) - 1)];
+  const level = new Level(stage.map);
   level.flooded = params.get('map') === 'flooded';
   const c = canvas;
   c.width = level.pxW;
@@ -627,7 +856,7 @@ async function boot() {
   addEventListener('resize', layout);
   setupTouch(game);
   setupSound(game);
-  if (params.has('play')) game.setState('play');
+  game.setState(params.has('play') ? 'play' : 'title');
   if (params.has('manual')) { game.render(); return; } // automated tests step the game themselves
 
   const STEP = 1 / 60;
