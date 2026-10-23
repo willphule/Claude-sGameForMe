@@ -7,6 +7,8 @@ import {
   VIEW_W, VIEW_H, buildTileLayer, drawBackground, drawDynamicTiles, drawWater, drawVignette, drawHeart,
 } from './render.js';
 import { NOTES, ENDING } from './story.js';
+import { Sound } from './audio.js';
+import { FX } from './fx.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -15,6 +17,7 @@ const FONT = '8px Silkscreen, monospace';
 const $ = (id) => document.getElementById(id);
 
 const isTouch = matchMedia('(pointer: coarse)').matches;
+const ENDING_TIME = 2.6;
 
 // World hints, in tile coordinates.
 const HINTS = [
@@ -29,6 +32,7 @@ const HINTS = [
 class Game {
   constructor() {
     this.input = new Input();
+    this.sound = new Sound();
     this.state = 'title';
     this.t = 0;
     this.newGame();
@@ -56,8 +60,14 @@ class Game {
     this.fade = 0;
     this.dying = 0;
     this.toasts = [];
-    this.particles = [];
+    this.fx = new FX();
+    this.hitstop = 0;
+    this.ending = 0;
     this.cam = { x: 0, y: 0 };
+    this.gears = [];
+    for (let ty = 0; ty < this.level.h; ty++)
+      for (let tx = 0; tx < this.level.w; tx++)
+        if (this.level.get(tx, ty) === 'G') this.gears.push({ x: tx * TILE, y: ty * TILE });
 
     // Developer shortcuts for testing, e.g. ?at=60,8&watch&era=then
     if (params.has('watch')) this.hasWatch = true;
@@ -68,10 +78,15 @@ class Game {
     }
     if (params.get('era') === 'then') this.era = THEN;
     if (params.has('flooded')) this.level.flooded = true;
+    this.sound.setEra(this.era, true);
+    this.sound.setUnderwater(false);
     this.snapCamera();
   }
 
   setState(s) {
+    if (s === 'play' && this.state === 'title') this.sound.play('start');
+    if (s === 'paused' || (s === 'play' && this.state === 'paused')) this.sound.play('ui');
+    this.sound.duck(s === 'note' || s === 'paused' || s === 'end');
     this.state = s;
     $('title').classList.toggle('hidden', s !== 'title');
     $('note').classList.toggle('hidden', s !== 'note');
@@ -109,7 +124,8 @@ class Game {
   updatePlay(dt) {
     const inp = this.input;
     const p = this.player;
-    if (inp.pressed('pause')) { this.setState('paused'); return; }
+    if (inp.pressed('pause') && this.ending <= 0) { this.setState('paused'); return; }
+    if (this.hitstop > 0) { this.hitstop -= dt; return; } // a tiny freeze sells a hit
 
     this.time += dt;
     this.shiftCooldown = Math.max(0, this.shiftCooldown - dt);
@@ -120,7 +136,16 @@ class Game {
       if (this.trans.t >= this.trans.dur) this.trans = null;
     }
     this.updateToasts(dt);
-    this.updateParticles(dt);
+    this.fx.update(dt, this);
+    this.sound.tick(dt);
+    this.sound.setUnderwater(this.era === NOW && p.inWater && this.dying <= 0);
+
+    if (this.ending > 0) {
+      this.ending -= dt;
+      for (const e of this.entities) if (!e.dead) e.update(this, dt);
+      if (this.ending <= 0) this.setState('end');
+      return;
+    }
 
     if (this.dying > 0) {
       this.dying -= dt;
@@ -133,8 +158,7 @@ class Game {
     if (inp.pressed('shift')) this.tryShift();
 
     p.update(dt, inp, this.level, this.era);
-    if (p.splashed) this.burst(p.cx, p.y + 4, 'rgba(170,235,255,0.9)', 10, -60);
-    if (p.landed && !p.inWater) this.burst(p.cx, p.y + p.h, this.era === NOW ? '#5a7a7a' : '#b08a5e', 4, -20);
+    this.playerEvents();
 
     // Spikes and gears use a slightly smaller hitbox, to be forgiving
     const hz = this.level.rectHazard(p.x + 2, p.y + 3, p.w - 4, p.h - 3, this.era);
@@ -167,12 +191,57 @@ class Game {
       this.shake(0.15, 2);
       this.toast(`Something stands here in the ${ERA_NAME[to]}.`, 1.6);
       this.burst(p.cx, p.cy, '#ff6a5a', 6);
+      this.sound.play('blocked');
       return;
     }
     this.trans = { t: 0, dur: 0.45, from: this.era, to };
     this.era = to;
     this.shiftCooldown = 0.25;
-    this.burst(p.cx, p.cy, to === NOW ? '#7ff3ff' : '#ffd36b', 16);
+    p.inWater = this.level.isWaterAt(p.cx, p.cy, to); // no splash sound when the water appears around you
+    this.sound.play('shift', to);
+    this.sound.setEra(to);
+    const color = to === NOW ? '#7ff3ff' : '#ffd36b';
+    this.fx.eraFlash = 1;
+    this.fx.eraFlashColor = to === NOW ? '127,243,255' : '255,211,107';
+    this.fx.burst(p.cx, p.cy, { n: 18, speed: [90, 180], kind: 'streak', color, g: 0, drag: 5, life: 0.45 });
+    this.fx.burst(p.cx, p.cy, { n: 10, speed: [10, 40], color, g: -20, life: 0.8, size: 1 });
+  }
+
+  // Turn what the player did this frame into sound and dust.
+  playerEvents() {
+    const p = this.player, fx = this.fx, snd = this.sound;
+    const dust = this.era === NOW ? '#6a8a88' : '#c49a68';
+    for (const ev of p.events) {
+      if (ev === 'jump') {
+        snd.play('jump');
+        fx.burst(p.cx, p.y + p.h, { n: 5, speed: [15, 45], angle: -Math.PI / 2, spread: 2.6, g: 40, drag: 4, life: 0.35, color: dust });
+      } else if (ev === 'land') {
+        const k = p.landImpact;
+        snd.play('land', k);
+        fx.burst(p.cx - 3, p.y + p.h, { n: 2 + Math.round(5 * k), speed: [20, 60 * k + 20], angle: Math.PI, spread: 0.6, g: 30, drag: 5, life: 0.4, color: dust });
+        fx.burst(p.cx + 3, p.y + p.h, { n: 2 + Math.round(5 * k), speed: [20, 60 * k + 20], angle: 0, spread: 0.6, g: 30, drag: 5, life: 0.4, color: dust });
+        if (k > 0.8) this.shake(0.12, 1.5);
+      } else if (ev === 'step') {
+        snd.play('step', p.stepAlt);
+        if (Math.random() < 0.7) fx.add({ x: p.cx - p.facing * 3, y: p.y + p.h - 1, vx: -p.facing * 15, vy: -12, g: 20, drag: 4, life: 0.3, size: 2, color: dust });
+      } else if (ev === 'stroke') {
+        snd.play('stroke');
+        fx.bubbles(p.cx - p.facing * 2, p.y + 6, 3);
+      } else if (ev === 'splashIn' || ev === 'splashOut') {
+        const big = ev === 'splashIn' ? Math.min(1, 0.4 + Math.abs(p.vy) / 150) : 0.5;
+        snd.play('splash', big);
+        const sy = this.surfaceY(p.cx, p.cy);
+        fx.burst(p.cx, sy, { n: Math.round(14 * big), speed: [40, 120], angle: -Math.PI / 2, spread: 1.4, g: 500, life: 0.55, size: 2, color: 'rgba(170,235,255,0.9)', era: NOW });
+        fx.ring(p.cx, sy, '170,235,255', 16, 0.5, 1);
+        if (ev === 'splashIn') fx.bubbles(p.cx, p.cy + 4, 6);
+      }
+    }
+  }
+
+  surfaceY(px, py) {
+    let ty = Math.floor(py / TILE);
+    while (ty > 0 && this.level.isWater(Math.floor(px / TILE), ty - 1, NOW)) ty--;
+    return ty * TILE + 2;
   }
 
   hurt(srcX) {
@@ -187,10 +256,19 @@ class Game {
     p.jumping = false;
     this.shake(0.3, 3);
     this.flash = 0.25;
+    this.hitstop = 0.07;
     this.burst(p.cx, p.cy, '#ff7a6a', 10);
     if (this.hearts <= 0) {
-      this.dying = 1.0;
+      this.dying = 1.2;
       this.deaths++;
+      this.sound.play('die');
+      // the diver comes apart into brass, glass and bubbles
+      for (const color of ['#c9973f', '#3e6670', '#9ff6ff', '#8a6326']) {
+        this.fx.burst(p.cx, p.cy, { n: 8, speed: [20, 90], color, g: p.inWater ? -30 : 250, drag: 2, life: 1.1, size: 2 });
+      }
+      if (p.inWater) this.fx.bubbles(p.cx, p.cy, 12);
+    } else {
+      this.sound.play('hurt');
     }
   }
 
@@ -201,6 +279,9 @@ class Game {
     this.era = c.era;
     this.hearts = this.maxHearts;
     this.trans = null;
+    this.sound.setEra(c.era, true);
+    this.sound.play('checkpoint');
+    this.fx.ring(this.player.cx, this.player.cy, '255,211,107', 30, 0.6, 2);
     this.snapCamera();
   }
 
@@ -209,6 +290,10 @@ class Game {
     const n = NOTES[i];
     if (n.unlocksWatch) this.hasWatch = true;
     this.currentNote = n;
+    this.sound.play('note');
+    const p = this.player;
+    this.fx.burst(p.cx, p.cy, { n: 16, speed: [30, 80], color: '#fff1c0', g: -10, drag: 3, life: 0.9, size: 1 });
+    this.fx.ring(p.cx, p.cy, '255,241,192', 26, 0.5, 2);
     $('note-from').textContent = n.from;
     $('note-text').innerHTML = '';
     for (const para of n.text) {
@@ -221,6 +306,7 @@ class Game {
   }
 
   closeNote() {
+    this.sound.play('ui');
     this.setState('play');
     if (this.currentNote && this.currentNote.unlocksWatch) {
       this.toast(isTouch ? 'You took the watch. Tap the watch button to turn it.' : 'You took the watch. Press X or Shift to turn it.', 5);
@@ -229,14 +315,21 @@ class Game {
   }
 
   finish() {
-    if (this.state === 'end') return;
+    if (this.state === 'end' || this.ending > 0) return;
+    // the bell tolls, then the ending card
+    this.ending = ENDING_TIME;
+    this.sound.play('bell');
+    this.shake(0.8, 2);
+    const p = this.player;
+    this.fx.ring(p.cx, p.cy - 6, '159,246,255', 160, 2.2, 3);
+    this.fx.ring(p.cx, p.cy - 6, '159,246,255', 90, 1.5, 2);
+    this.fx.bubbles(p.cx, p.cy, 10);
     const m = Math.floor(this.time / 60), s = Math.floor(this.time % 60);
     $('end-title').textContent = ENDING.title;
     $('end-text').textContent = ENDING.text;
     $('end-stats').textContent =
       `Time ${m}:${String(s).padStart(2, '0')}  ·  Notes ${this.notes.size}/${NOTES.length}  ·  Falls ${this.deaths}`;
-    this.endTimer = 0;
-    this.setState('end');
+    this.endTimer = 0; // the ending card appears when the bell sequence finishes (see updatePlay)
   }
 
   restart() {
@@ -261,22 +354,7 @@ class Game {
   }
 
   burst(x, y, color, n, vyBias = 0) {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, s = 20 + Math.random() * 60;
-      this.particles.push({
-        x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s + vyBias, life: 0.4 + Math.random() * 0.4, color,
-      });
-    }
-  }
-
-  updateParticles(dt) {
-    for (const q of this.particles) {
-      q.x += q.vx * dt;
-      q.y += q.vy * dt;
-      q.vy += 200 * dt;
-      q.life -= dt;
-    }
-    this.particles = this.particles.filter((q) => q.life > 0);
+    this.fx.burst(x, y, { color, n, vyBias });
   }
 
   // ---------- camera ----------
@@ -337,6 +415,11 @@ class Game {
       this.renderWorld(this.era, cam);
     }
 
+    this.fx.drawEraFlash(ctx);
+    if (this.ending > 0) {
+      ctx.fillStyle = `rgba(200,250,255,${(1 - this.ending / ENDING_TIME) * 0.7})`;
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(255,60,60,${this.flash * 0.8})`;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
@@ -352,6 +435,7 @@ class Game {
     const realEra = this.era;
     this.era = era; // entities colour themselves by the era being drawn
     drawBackground(ctx, era, cam, this.t);
+    this.fx.drawOverlay(ctx, era); // lightning lights up the sky behind the city
     ctx.save();
     ctx.translate(-cam.x, -cam.y);
     ctx.drawImage(this.layers[era], cam.x, cam.y, VIEW_W, VIEW_H, cam.x, cam.y, VIEW_W, VIEW_H);
@@ -370,14 +454,8 @@ class Game {
       ctx.fillText(isTouch ? 'USE' : 'E', bx, by + 2);
     }
 
-    if (this.dying <= 0 || this.fade < 0.6) this.player.draw(ctx, this.t, this.hasWatch);
-
-    for (const q of this.particles) {
-      ctx.globalAlpha = Math.min(1, q.life * 2.5);
-      ctx.fillStyle = q.color;
-      ctx.fillRect(Math.round(q.x), Math.round(q.y), 2, 2);
-    }
-    ctx.globalAlpha = 1;
+    if (this.dying <= 0) this.player.draw(ctx, this.t, this.hasWatch);
+    this.fx.draw(ctx, era);
 
     drawWater(ctx, this.level, era, cam, this.t);
     ctx.restore();
@@ -482,6 +560,32 @@ function setupTouch(game) {
   $('pause-btn').addEventListener('click', (e) => { e.stopPropagation(); if (game.state === 'play') game.setState('paused'); });
 }
 
+function setupSound(game) {
+  const unlock = () => game.sound.unlock();
+  addEventListener('keydown', unlock);
+  addEventListener('pointerdown', unlock);
+  addEventListener('touchend', unlock);
+  const btn = $('sound-btn');
+  const show = () => { btn.textContent = game.sound.muted ? 'SOUND OFF' : 'SOUND ON'; btn.classList.toggle('off', game.sound.muted); };
+  const toggle = () => {
+    game.sound.unlock();
+    game.sound.toggleMute();
+    show();
+    if (game.state === 'play') game.toast(game.sound.muted ? 'Sound off' : 'Sound on', 1.2);
+  };
+  addEventListener('keydown', (e) => { if (e.code === 'KeyM' && !e.repeat) toggle(); });
+  // go quiet while the tab is in the background
+  document.addEventListener('visibilitychange', () => {
+    const c = game.sound.ctx;
+    if (!c) return;
+    if (document.hidden) c.suspend();
+    else c.resume();
+  });
+  btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
+  btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+  show();
+}
+
 function mapPreview() {
   // ?map — draws the whole level in both eras, for checking level design.
   const level = new Level();
@@ -522,6 +626,7 @@ async function boot() {
   layout();
   addEventListener('resize', layout);
   setupTouch(game);
+  setupSound(game);
   if (params.has('play')) game.setState('play');
   if (params.has('manual')) { game.render(); return; } // automated tests step the game themselves
 

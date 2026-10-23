@@ -42,7 +42,11 @@ export class Player {
     this.knock = 0;    // time after being hit during which steering is off
     this.invuln = 0;
     this.anim = 0;
-    this.splashed = false;
+    this.events = [];  // things that happened this frame, for sound and effects
+    this.sx = 1;       // squash and stretch
+    this.sy = 1;
+    this.stepT = 0;
+    this.stepAlt = false;
   }
 
   get cx() { return this.x + this.w / 2; }
@@ -52,9 +56,10 @@ export class Player {
     const dir = (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0);
     if (dir && this.knock <= 0) this.facing = dir;
 
+    this.events.length = 0;
     const wasInWater = this.inWater;
     this.inWater = level.isWaterAt(this.cx, this.cy, era);
-    this.splashed = this.inWater !== wasInWater && era === NOW;
+    if (this.inWater !== wasInWater && era === NOW) this.events.push(this.inWater ? 'splashIn' : 'splashOut');
     if (this.inWater && !wasInWater && this.vy > 0) this.vy *= 0.35;
 
     if (input.pressed('jump')) this.buffer = PHYS.BUFFER;
@@ -88,8 +93,12 @@ export class Player {
         this.vy = -PHYS.JUMP_V * 0.9;
         this.leap = 0.3;
         this.buffer = 0;
+        this.sx = 0.8; this.sy = 1.25;
       } else {
-        if (input.pressed('jump') && !headOut) this.vy = Math.min(this.vy, -PHYS.SWIM_STROKE);
+        if (input.pressed('jump') && !headOut) {
+          this.vy = Math.min(this.vy, -PHYS.SWIM_STROKE);
+          this.events.push('stroke');
+        }
         this.vy = approach(this.vy, target, PHYS.SWIM_ACCEL * dt);
       }
       this.jumping = false;
@@ -104,7 +113,8 @@ export class Player {
         this.coyote = 0;
         this.jumping = true;
         this.onGround = false;
-        this.justJumped = true;
+        this.events.push('jump');
+        this.sx = 0.75; this.sy = 1.3;
       }
       if (this.jumping && this.vy < 0 && !input.down('jump')) {
         this.vy *= PHYS.JUMP_CUT;
@@ -117,7 +127,28 @@ export class Player {
     const wasGrounded = this.onGround;
     this.moveX(this.vx * dt, level, era);
     this.moveY(this.vy * dt, level, era);
-    this.landed = this.onGround && !wasGrounded;
+    if (this.onGround && !wasGrounded && this.impact > 120) {
+      const k = Math.min(1, this.impact / PHYS.MAX_FALL);
+      this.events.push('land');
+      this.landImpact = k;
+      this.sx = 1 + 0.35 * k; this.sy = 1 - 0.3 * k;
+    }
+
+    // footsteps
+    if (this.onGround && !this.inWater && Math.abs(this.vx) > 30) {
+      this.stepT -= dt * Math.abs(this.vx) / PHYS.RUN;
+      if (this.stepT <= 0) {
+        this.stepT = 0.26;
+        this.stepAlt = !this.stepAlt;
+        this.events.push('step');
+      }
+    } else {
+      this.stepT = 0.05;
+    }
+
+    const relax = 1 - Math.exp(-dt * 14);
+    this.sx += (1 - this.sx) * relax;
+    this.sy += (1 - this.sy) * relax;
 
     this.anim += dt * (this.onGround && Math.abs(this.vx) > 10 ? Math.abs(this.vx) / 12 : swimming ? 6 : 0);
   }
@@ -149,7 +180,7 @@ export class Player {
     if (dy > 0) {
       const ty = Math.floor((this.y + this.h - 0.001) / TILE);
       for (let tx = l; tx <= r; tx++) {
-        if (level.isSolid(tx, ty, era)) { this.y = ty * TILE - this.h; this.vy = 0; this.onGround = true; return; }
+        if (level.isSolid(tx, ty, era)) { this.y = ty * TILE - this.h; this.impact = this.vy; this.vy = 0; this.onGround = true; return; }
       }
     } else {
       const ty = Math.floor(this.y / TILE);
@@ -164,8 +195,9 @@ export class Player {
     const x = Math.round(this.x), y = Math.round(this.y);
     const f = this.facing;
     ctx.save();
-    ctx.translate(x + this.w / 2, y);
-    ctx.scale(f, 1);
+    ctx.translate(x + this.w / 2, y + this.h);
+    ctx.scale(f * this.sx, this.sy);
+    ctx.translate(0, -this.h);
     // local coords: x in [-5, 5], y in [0, 14]
 
     // legs

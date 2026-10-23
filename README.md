@@ -20,12 +20,20 @@ that fell after the flood blocks the way in NOW. Changes you make in THEN carry 
 | Turn the watch (NOW ⇄ THEN) | X / Shift | X / bumpers | ◷ |
 | Use | E / Up | B / Y | USE |
 | Pause | Esc / P | Start | II |
+| Sound on/off | M | | SOUND button |
+
+## Sound
+
+All sound effects, ambience and music are synthesised live in the browser with the Web Audio API, with no audio files.
+The music is a single piece played in two versions at once: glassy and underwater for NOW, and a music box
+with a ticking clock for THEN. Turning the watch crossfades between them.
 
 ## Roadmap
 
 - [x] **Stage 1:** movement, swimming, the time-shift, one small area (rooftops → time-crossing → machine hall → floodgate shaft)
 - [ ] **Stage 2:** several connected areas, a new ability, a boss
-- [ ] **Stage 3:** story, menus, sound, saving, polish
+- [x] Sound effects, music, ambience and visual effects (added after Stage 1)
+- [ ] **Stage 3:** story, menus, saving, polish
 
 ## Running locally
 
