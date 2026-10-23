@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#03111a">
+  <title>Drowned Bell</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Silkscreen&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage">
+    <canvas id="game" width="480" height="270"></canvas>
+
+    <div id="title" class="overlay">
+      <h1>Drowned Bell</h1>
+      <p class="sub">The city of Carillon sank fifty years ago, the night its great bell rang.<br>You are the first diver to go looking for it.</p>
+      <p class="start">Press <b>Jump</b> or tap to begin</p>
+      <div class="controls">
+        <span><b>Arrows / WASD</b> move</span>
+        <span><b>Z / Space</b> jump · swim</span>
+        <span><b>X / Shift</b> turn the watch</span>
+        <span><b>E / Up</b> use</span>
+        <span><b>Esc</b> pause</span>
+      </div>
+      <p class="tiny">Gamepads work too. Stage 1 of 3.</p>
+    </div>
+
+    <div id="note" class="overlay hidden">
+      <div class="paper">
+        <div id="note-from"></div>
+        <div id="note-text"></div>
+        <div class="continue">Jump or tap to continue</div>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <h2>Paused</h2>
+      <p class="start">Press Jump or tap to resume</p>
+    </div>
+
+    <div id="end" class="overlay hidden">
+      <h2 id="end-title"></h2>
+      <p id="end-text" class="sub"></p>
+      <p class="banner">End of Stage 1</p>
+      <p id="end-stats" class="stats"></p>
+      <p class="tiny">Press Jump or tap to play again</p>
+    </div>
+
+    <button id="pause-btn" aria-label="Pause">II</button>
+  </div>
+
+  <div id="touch" class="hidden">
+    <div class="cluster left">
+      <button data-action="left" aria-label="Left">◀</button>
+      <button data-action="right" aria-label="Right">▶</button>
+    </div>
+    <div class="cluster right">
+      <button data-action="interact" class="small" aria-label="Use">USE</button>
+      <button data-action="shift" class="watch" aria-label="Turn the watch">◷</button>
+      <button data-action="jump" class="jump" aria-label="Jump">JUMP</button>
+    </div>
+    <button data-action="down" class="dive" aria-label="Dive">▼</button>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,152 @@
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #02090e;
+  color: #e8eef0;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'IM Fell English', Georgia, serif;
+}
+
+#stage {
+  --s: 2;
+  position: relative;
+  width: 960px;
+  height: 540px;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: calc(var(--s) * 12px);
+  background: radial-gradient(ellipse at center, rgba(2, 14, 20, 0.55), rgba(2, 8, 12, 0.9));
+  cursor: pointer;
+}
+
+.hidden { display: none !important; }
+
+h1, h2 {
+  font-family: 'Silkscreen', monospace;
+  font-weight: normal;
+  margin: 0 0 calc(var(--s) * 8px);
+  letter-spacing: 0.06em;
+  color: #9ff6ff;
+  text-shadow: 0 0 calc(var(--s) * 6px) rgba(127, 243, 255, 0.5);
+}
+h1 { font-size: calc(var(--s) * 28px); }
+h2 { font-size: calc(var(--s) * 16px); }
+
+.sub {
+  font-size: calc(var(--s) * 8px);
+  line-height: 1.4;
+  max-width: calc(var(--s) * 340px);
+  color: #cfe0e2;
+  margin: 0 0 calc(var(--s) * 10px);
+}
+
+.start {
+  font-family: 'Silkscreen', monospace;
+  font-size: calc(var(--s) * 7px);
+  color: #ffd36b;
+  animation: pulse 1.6s ease-in-out infinite;
+  margin: 0 0 calc(var(--s) * 10px);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(var(--s) * 4px) calc(var(--s) * 10px);
+  font-size: calc(var(--s) * 6px);
+  color: #a9bcc2;
+  max-width: calc(var(--s) * 360px);
+}
+.controls b { color: #e8eef0; font-weight: normal; font-family: 'Silkscreen', monospace; }
+
+.tiny { font-size: calc(var(--s) * 5.5px); color: #7b8f95; margin: calc(var(--s) * 8px) 0 0; }
+.banner { font-family: 'Silkscreen', monospace; font-size: calc(var(--s) * 9px); color: #ffd36b; margin: 0 0 calc(var(--s) * 6px); }
+.stats { font-family: 'Silkscreen', monospace; font-size: calc(var(--s) * 6px); color: #cfe0e2; margin: 0; }
+
+.paper {
+  background: linear-gradient(#efe2c0, #e2d1a6);
+  color: #3a2c1c;
+  max-width: calc(var(--s) * 300px);
+  padding: calc(var(--s) * 12px) calc(var(--s) * 16px);
+  box-shadow: 0 calc(var(--s) * 4px) calc(var(--s) * 20px) rgba(0, 0, 0, 0.6);
+  transform: rotate(-1deg);
+  text-align: left;
+}
+#note-from { font-style: italic; font-size: calc(var(--s) * 6px); color: #7a6448; margin-bottom: calc(var(--s) * 6px); }
+#note-text p { font-size: calc(var(--s) * 8px); line-height: 1.35; margin: 0 0 calc(var(--s) * 5px); }
+.continue { font-family: 'Silkscreen', monospace; font-size: calc(var(--s) * 5px); color: #8a7a5a; text-align: right; margin-top: calc(var(--s) * 6px); }
+
+#pause-btn {
+  position: absolute;
+  top: calc(var(--s) * 34px);
+  right: calc(var(--s) * 10px);
+  display: none;
+  font-family: 'Silkscreen', monospace;
+  font-size: calc(var(--s) * 6px);
+  background: rgba(5, 15, 20, 0.6);
+  color: #cfe0e2;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: calc(var(--s) * 2px) calc(var(--s) * 4px);
+}
+
+@keyframes pulse { 50% { opacity: 0.45; } }
+
+/* ---------- touch controls ---------- */
+#touch {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+#touch button {
+  pointer-events: auto;
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(10, 30, 38, 0.45);
+  color: rgba(255, 255, 255, 0.8);
+  font-family: 'Silkscreen', monospace;
+  font-size: 18px;
+  touch-action: none;
+}
+#touch button.on { background: rgba(127, 243, 255, 0.35); }
+#touch .cluster { position: absolute; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; gap: 12px; align-items: flex-end; }
+#touch .left { left: calc(16px + env(safe-area-inset-left)); }
+#touch .right { right: calc(16px + env(safe-area-inset-right)); }
+#touch .jump { width: 76px; height: 76px; font-size: 13px; }
+#touch .watch { font-size: 26px; color: #ffd36b; margin-bottom: 40px; }
+#touch .small { width: 48px; height: 48px; font-size: 10px; margin-bottom: 70px; }
+#touch .dive { position: absolute; left: calc(56px + env(safe-area-inset-left)); bottom: calc(92px + env(safe-area-inset-bottom)); width: 48px; height: 48px; font-size: 14px; }
+
+@media (pointer: coarse) {
+  #pause-btn { display: block; }
+}
