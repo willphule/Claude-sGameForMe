@@ -33,6 +33,9 @@ export class Bellwright extends Entity {
     this.ceil = arena.y0 * TILE;
     this.floorY = arena.floor * TILE;
     this.isBoss = true;
+    this.title = 'THE BELLWRIGHT';
+    this.subtitle = 'Keeper of the Great Bell';
+    this.wakeEra = THEN; // the fight only starts if you walk in during THEN
     this.maxHp = 3;
     this.reset();
   }
@@ -472,33 +475,43 @@ export class GearShot extends Entity {
   draw(ctx) { drawGear(ctx, this.x + 6, this.y + 6, 5, this.spin, THEN); }
 }
 
-// The toll: a ring of sound sweeping out across the chamber. It only exists in THEN.
+// The toll: a ring of sound sweeping outwards. A gold toll exists only in THEN; the Great Bell's
+// blue echo exists only in NOW. Be in the other time when it passes.
 export class TollRing extends Entity {
-  constructor(cx, cy) {
+  // bounds: if given, the ring can only hurt you inside this rectangle
+  constructor(cx, cy, { era = THEN, speed = 250, maxR = 700, bounds = null } = {}) {
     super(0, 0, 0, 0);
     this.cx0 = cx;
     this.cy0 = cy;
     this.r = 10;
-    this.era = THEN;
+    this.era = era;
+    this.speed = speed;
+    this.maxR = maxR;
+    this.bounds = bounds;
     this.projectile = true;
     this.hitDone = false;
   }
   update(game, dt) {
-    this.r += 250 * dt;
+    this.r += this.speed * dt;
     const p = game.player;
-    if (!this.hitDone && game.era === THEN && game.dying <= 0) {
+    const b = this.bounds;
+    const inside = !b || (p.cx >= b.x && p.cx < b.x + b.w && p.cy >= b.y && p.cy < b.y + b.h);
+    if (!this.hitDone && inside && game.era === this.era && game.dying <= 0) {
       const d = Math.hypot(p.cx - this.cx0, p.cy - this.cy0);
       if (Math.abs(d - this.r) < 10) { this.hitDone = true; game.hurt(this.cx0); }
     }
-    if (this.r > 700) this.dead = true;
+    if (this.r > this.maxR) this.dead = true;
   }
   draw(ctx) { this.rings(ctx, 1); }
   drawGhost(ctx) { this.rings(ctx, 0.25); }
   rings(ctx, a) {
+    const blue = this.era === NOW;
     for (let i = 0; i < 3; i++) {
       const r = this.r - i * 7;
       if (r <= 0) continue;
-      ctx.strokeStyle = `rgba(255,${210 - i * 30},${140 - i * 30},${a * (0.8 - i * 0.25)})`;
+      ctx.strokeStyle = blue
+        ? `rgba(${140 - i * 30},${235 - i * 20},255,${a * (0.8 - i * 0.25)})`
+        : `rgba(255,${210 - i * 30},${140 - i * 30},${a * (0.8 - i * 0.25)})`;
       ctx.lineWidth = 4 - i;
       ctx.beginPath(); ctx.arc(this.cx0, this.cy0, r, 0, Math.PI * 2); ctx.stroke();
     }

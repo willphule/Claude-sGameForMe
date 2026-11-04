@@ -2,11 +2,15 @@
 import { Level, TILE, NOW, THEN, ERA_NAME } from './level.js';
 import { Input } from './input.js';
 import { Player, HOOK } from './player.js';
-import { spawnEntities, overlaps } from './entities.js';
-import { Bellwright } from './boss.js';
+import { spawnEntities, overlaps, Checkpoint, Note, Lever } from './entities.js';
+import { Bellwright, TollRing } from './boss.js';
+import { GreatBell } from './greatbell.js';
 import { STAGES } from './stages.js';
+import { LAST_LETTER } from './story.js';
+import { Save, formatTime } from './save.js';
+import { Menu } from './menu.js';
 import {
-  VIEW_W, VIEW_H, buildTileLayer, drawBackground, drawDynamicTiles, drawWater, drawVignette, drawHeart,
+  VIEW_W, VIEW_H, buildTileLayer, drawBackground, drawDynamicTiles, drawWater, drawVignette, drawHeart, drawDawn,
 } from './render.js';
 import { Sound } from './audio.js';
 import { FX } from './fx.js';
@@ -19,42 +23,54 @@ const $ = (id) => document.getElementById(id);
 
 const isTouch = matchMedia('(pointer: coarse)').matches;
 const ENDING_TIME = 2.6;
-
-const PROGRESS_KEY = 'drownedbell-progress';
-function loadProgress() { try { return Math.min(STAGES.length - 1, Number(localStorage.getItem(PROGRESS_KEY)) || 0); } catch { return 0; } }
-function saveProgress(i) { try { localStorage.setItem(PROGRESS_KEY, String(i)); } catch { /* storage unavailable */ } }
+const FINALE_TIME = 4.2;   // from the last turn of the watch to the dawn
+const INTRO_TIME = 3.6;    // the stage title card
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const approach = (v, target, step) => (v < target ? Math.min(v + step, target) : Math.max(v - step, target));
 
 class Game {
   constructor() {
     this.input = new Input();
     this.sound = new Sound();
+    Save.load();
+    this.menu = new Menu($('menu'), this.sound);
+    this.menu.onRender = () => $('title').classList.toggle('sub-page', this.menu.depth > 1);
+    this.pauseMenu = new Menu($('pause-menu'), this.sound);
     this.state = 'title';
     this.t = 0;
-    this.progress = loadProgress();
-    this.menuIndex = 0;
+    this.applySettings();
     const devStage = Number(params.get('stage')) - 1;
-    this.loadStage(devStage >= 0 && devStage < STAGES.length ? devStage : this.progress);
+    const r = Save.data.resume;
+    this.loadStage(devStage >= 0 && devStage < STAGES.length ? devStage : r ? r.stage : 0);
   }
 
-  loadStage(index) {
+  loadStage(index, snap = null) {
     this.stageIndex = index;
     this.stage = STAGES[index];
     this.level = new Level(this.stage.map);
     this.layers = [buildTileLayer(this.level, NOW), buildTileLayer(this.level, THEN)];
     const { list, start } = spawnEntities(this.level, {
       W: (tx, ty) => new Bellwright(tx, ty, this.stage.arena),
+      Q: (tx, ty) => new GreatBell(tx, ty),
     });
     this.entities = list;
+    this.crates = list.filter((e) => e.isCrate);
+    for (const c of this.crates) c.settle(this.level, c.tx, c.ty);
+    this.levers = list.filter((e) => e instanceof Lever);
+    this.lanterns = list.filter((e) => e instanceof Checkpoint);
     this.boss = list.find((e) => e.isBoss) || null;
     this.fight = false;
     this.bannerT = 0;
+    this.finaleReady = false;
+    this.finale = 0;
     this.player = new Player(start.x, start.y);
     this.era = NOW;
     this.checkpoint = { x: start.x, y: start.y, era: NOW };
-    this.maxHearts = 3;
-    this.hearts = 3;
+    this.cpCrates = this.crateState();
+    this.maxHearts = Save.settings.hearts;
+    this.hearts = this.maxHearts;
     this.hasWatch = !!this.stage.startWithWatch;
-    this.hasHarpoon = false;
+    this.hasHarpoon = !!this.stage.startWithHarpoon;
     this.hookTarget = null;
     this.notes = new Set();
     this.time = 0;
@@ -75,6 +91,17 @@ class Game {
     for (let ty = 0; ty < this.level.h; ty++)
       for (let tx = 0; tx < this.level.w; tx++)
         if (this.level.get(tx, ty) === 'G') this.gears.push({ x: tx * TILE, y: ty * TILE });
+    this.tollT = this.stage.tolls ? this.stage.tolls.period : 0;
+    this.tollWarned = false;
+    this.tollWarn = 0;
+    this.toldToll = false;
+    this.pushT = 0;
+    this.pushCrate = null;
+    this.crustT = 0;
+    this.stuckPushes = 0;
+    this.toldStuck = false;
+    this.introT = 0;
+    if (snap) this.applySnapshot(snap);
 
     // Developer shortcuts for testing, e.g. ?stage=2&at=60,8&watch&harpoon&era=then
     if (params.has('watch')) this.hasWatch = true;
@@ -93,16 +120,114 @@ class Game {
     this.snapCamera();
   }
 
-  setState(s) {
+  startStage(index, snap = null) {
+    this.loadStage(index, snap);
+    this.sound.setDawn(false);
+    this.setState('play');
+    this.introT = snap && snap.cp ? INTRO_TIME - 1.2 : INTRO_TIME;
+    if (!snap || !snap.cp) this.saveResume(); // Continue starts you here until you light a lantern
+  }
+
+  // ---------- saving ----------
+
+  crateState() { return this.crates.map((c) => [c.tx, c.ty]); }
+
+  restoreCrates(state) {
+    this.level.crate.fill(0);
+    this.crates.forEach((c, i) => {
+      const [tx, ty] = state[i];
+      c.tx = tx; c.ty = ty;
+      c.x = tx * TILE; c.y = ty * TILE;
+      c.ox = c.oy = c.vy = 0;
+      c.falling = false;
+      this.level.setCrate(tx, ty, true);
+    });
+  }
+
+  // Lanterns call this. A new place to come back to also saves the game.
+  setCheckpoint(cp) {
+    const c = this.checkpoint;
+    const moved = !c || cp.x !== c.x || cp.y !== c.y || cp.era !== c.era;
+    this.checkpoint = cp;
+    if (moved) {
+      this.cpCrates = this.crateState();
+      this.saveResume();
+    }
+  }
+
+  saveResume() {
+    if (params.has('nosave')) return;
+    const b = this.boss;
+    Save.data.resume = {
+      stage: this.stageIndex,
+      cp: { ...this.checkpoint },
+      hasWatch: this.hasWatch,
+      hasHarpoon: this.hasHarpoon,
+      flooded: this.level.flooded,
+      notes: [...this.notes],
+      lit: this.lanterns.map((l) => l.lit),
+      crates: this.cpCrates,
+      bossDone: !!b && (b.state === 'wreck' || b.state === 'silent'),
+      levers: this.levers.map((l) => l.pulled),
+      time: this.time,
+      deaths: this.deaths,
+    };
+    Save.write();
+  }
+
+  applySnapshot(s) {
+    if (!s.cp) return; // the start of the stage
+    this.hasWatch = !!s.hasWatch || !!this.stage.startWithWatch;
+    this.hasHarpoon = !!s.hasHarpoon || !!this.stage.startWithHarpoon;
+    this.level.flooded = !!s.flooded;
+    this.time = s.time || 0;
+    this.deaths = s.deaths || 0;
+    this.notes = new Set(s.notes || []);
+    for (const e of this.entities) if (e instanceof Note && this.notes.has(e.index)) e.dead = true;
+    (s.lit || []).forEach((on, i) => { if (on && this.lanterns[i]) this.lanterns[i].lit = true; });
+    if (s.crates && s.crates.length === this.crates.length) this.restoreCrates(s.crates);
+    this.cpCrates = this.crateState();
+    (s.levers || []).forEach((on, i) => this.levers[i] && this.levers[i].setPulled(on));
+    const b = this.boss;
+    if (b instanceof GreatBell) {
+      b.restore(this.levers);
+      if (b.hp <= 0) this.finaleReady = true;
+    } else if (b && s.bossDone) {
+      b.state = 'wreck';
+      b.y = b.floorY - b.h;
+      b.tilt = 0.5;
+      this.level.sealOpen = true;
+    }
+    this.checkpoint = { ...s.cp };
+    this.player.reset(s.cp.x, s.cp.y);
+    this.era = s.cp.era;
+  }
+
+  applySettings() {
+    const st = Save.settings;
+    this.sound.setVolumes(st.music / 10, st.sfx / 10);
+    if (this.maxHearts && this.maxHearts !== st.hearts) {
+      this.hearts = clamp(this.hearts + st.hearts - this.maxHearts, 1, st.hearts);
+      this.maxHearts = st.hearts;
+    }
+    Save.write();
+  }
+
+  // keepMenu: coming back from reading a note in the journal, so stay on the same menu page
+  setState(s, keepMenu = false) {
     if (s === 'play' && this.state === 'title') this.sound.play('start');
     if (s === 'paused' || (s === 'play' && this.state === 'paused')) this.sound.play('ui');
     this.sound.duck(s === 'note' || s === 'paused' || s === 'end');
     this.state = s;
-    if (s === 'title') this.buildMenu();
+    if (s === 'title' && !keepMenu) this.openTitle();
+    if (s === 'paused' && !keepMenu) this.openPause();
     $('title').classList.toggle('hidden', s !== 'title');
     $('note').classList.toggle('hidden', s !== 'note');
     $('pause').classList.toggle('hidden', s !== 'paused');
     $('end').classList.toggle('hidden', s !== 'end');
+    $('credits').classList.toggle('hidden', s !== 'credits');
+    $('pause-btn').classList.toggle('hidden', s !== 'play');
+    $('touch').classList.toggle('idle', s !== 'play');
   }
 
   // ---------- update ----------
@@ -113,16 +238,17 @@ class Game {
     this.t += dt;
     switch (this.state) {
       case 'title':
-        if (inp.pressed('up') || inp.pressed('left')) this.moveMenu(-1);
-        if (inp.pressed('down') || inp.pressed('right')) this.moveMenu(1);
-        if (inp.anyPressed('jump', 'interact', 'shift')) this.chooseMenu(this.menuIndex);
+        this.menu.handle(inp);
         break;
       case 'note':
         this.noteTimer += dt;
-        if (this.noteTimer > 0.35 && inp.anyPressed('jump', 'interact', 'pause')) this.closeNote();
+        if (this.noteTimer > 0.35 && inp.anyPressed('jump', 'interact', 'pause', 'hook')) this.closeNote();
         break;
       case 'paused':
-        if (inp.anyPressed('pause', 'jump', 'interact')) this.setState('play');
+        if (this.pauseMenu.handle(inp)) this.setState('play');
+        break;
+      case 'credits':
+        this.updateCredits(dt);
         break;
       case 'end':
         this.endTimer += dt;
@@ -137,10 +263,12 @@ class Game {
   updatePlay(dt) {
     const inp = this.input;
     const p = this.player;
-    if (inp.pressed('pause') && this.ending <= 0) { this.setState('paused'); return; }
+    if (inp.pressed('pause') && this.ending <= 0 && this.finale <= 0) { this.setState('paused'); return; }
     if (this.hitstop > 0) { this.hitstop -= dt; return; } // a tiny freeze sells a hit
 
     this.time += dt;
+    this.introT = Math.max(0, this.introT - dt);
+    this.crustT = Math.max(0, this.crustT - dt);
     this.shiftCooldown = Math.max(0, this.shiftCooldown - dt);
     this.shakeT = Math.max(0, this.shakeT - dt);
     this.flash = Math.max(0, this.flash - dt);
@@ -160,6 +288,14 @@ class Game {
       return;
     }
 
+    if (this.finale > 0) {
+      this.finale -= dt;
+      for (const e of this.entities) if (!e.dead) e.update(this, dt);
+      this.updateCamera(dt);
+      if (this.finale <= 0) this.rollCredits();
+      return;
+    }
+
     if (this.dying > 0) {
       this.dying -= dt;
       this.fade = Math.min(1, this.fade + dt * 2.5);
@@ -173,6 +309,9 @@ class Game {
 
     p.update(dt, inp, this.level, this.era);
     this.playerEvents();
+    this.updatePush(dt);
+    this.updatePlates(dt);
+    this.updateTolls(dt);
     this.updateBossFight(dt);
 
     // Spikes and gears use a slightly smaller hitbox, to be forgiving
@@ -190,6 +329,106 @@ class Game {
     if (near && (inp.pressed('interact') || (inp.pressed('up') && !p.inWater))) near.interact(this);
 
     this.updateCamera(dt);
+  }
+
+  // ---------- ballast blocks, plates and doors ----------
+
+  // Walking into a block for a moment shoves it one tile — but only in THEN.
+  updatePush(dt) {
+    const p = this.player, inp = this.input;
+    const dir = (inp.down('right') ? 1 : 0) - (inp.down('left') ? 1 : 0);
+    let target = null;
+    if (dir && p.onGround && !p.hook && !p.inWater && p.knock <= 0) {
+      for (const c of this.crates) {
+        if (c.ox || c.oy || c.falling) continue;
+        const touching = dir > 0 ? Math.abs(p.x + p.w - c.x) < 0.5 : Math.abs(c.x + TILE - p.x) < 0.5;
+        if (touching && p.y < c.y + TILE - 1 && p.y + p.h > c.y + 2) { target = c; break; }
+      }
+    }
+    if (!target) { this.pushT = 0; this.pushCrate = null; return; }
+    if (this.era === NOW) {
+      if (this.crustT <= 0) {
+        this.toast('Crusted to the floor with fifty years of coral. In the THEN it would move.', 3);
+        this.sound.play('rusted');
+        this.crustT = 4;
+      }
+      return;
+    }
+    if (this.pushCrate !== target) { this.pushCrate = target; this.pushT = 0; }
+    this.pushT += dt;
+    if (this.pushT >= 0.2) {
+      this.pushT = 0;
+      if (target.push(this, dir)) this.stuckPushes = 0;
+      else if (++this.stuckPushes === 6 && !this.toldStuck) {
+        this.toldStuck = true;
+        this.toast('Block stuck? Pause and pick Restart from lantern to put it back.', 5);
+      }
+    }
+  }
+
+  // Plates hold every weighted door in the level open while something is on them.
+  updatePlates(dt) {
+    const lvl = this.level;
+    if (!lvl.plates.length) return;
+    const p = this.player;
+    let any = false;
+    for (const pl of lvl.plates) {
+      const box = { x: pl.tx * TILE, y: pl.ty * TILE + 8, w: TILE, h: 8 };
+      const was = pl.pressed;
+      pl.pressed = lvl.hasCrate(pl.tx, pl.ty) || (this.dying <= 0 && overlaps(p, box));
+      if (pl.pressed !== was) this.sound.play('plate', pl.pressed);
+      any = any || pl.pressed;
+    }
+    if (any !== lvl.doorsOpen && (any || !this.inDoorway())) {
+      lvl.doorsOpen = any;
+      this.sound.play('door', any);
+      this.shake(0.25, 1);
+    }
+    lvl.doorAnim = approach(lvl.doorAnim, lvl.doorsOpen ? 1 : 0, dt * (lvl.doorsOpen ? 2.5 : 6));
+  }
+
+  inDoorway() {
+    const p = this.player, lvl = this.level;
+    const x0 = Math.floor(p.x / TILE), x1 = Math.floor((p.x + p.w - 0.001) / TILE);
+    const y0 = Math.floor(p.y / TILE), y1 = Math.floor((p.y + p.h - 0.001) / TILE);
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) if (lvl.get(tx, ty) === '=') return true;
+    return false;
+  }
+
+  // ---------- the distant toll ----------
+
+  // While you climb the counterweight shaft, the Great Bell tolls far above. Its toll is only in THEN.
+  updateTolls(dt) {
+    const z = this.stage.tolls;
+    if (!z) return;
+    const p = this.player;
+    const inside = p.cx >= z.x0 * TILE && p.cx < (z.x1 + 1) * TILE && p.cy >= z.y0 * TILE && p.cy < (z.y1 + 1) * TILE;
+    if (!inside) {
+      // a moment's grace whenever you come back in
+      this.tollT = Math.max(this.tollT, z.warn + 1.5);
+      this.tollWarned = false;
+      this.tollWarn = 0;
+      return;
+    }
+    this.tollT -= dt;
+    if (this.tollT <= z.warn && !this.tollWarned) {
+      this.tollWarned = true;
+      this.sound.play('distantWind');
+      if (!this.toldToll) {
+        this.toldToll = true;
+        this.toast('The Great Bell is about to toll. It only shakes the THEN!', 3.5);
+      }
+    }
+    this.tollWarn = this.tollWarned ? clamp(1 - this.tollT / z.warn, 0, 1) : 0;
+    if (this.tollT <= 0) {
+      const bounds = { x: z.x0 * TILE, y: z.y0 * TILE, w: (z.x1 - z.x0 + 1) * TILE, h: (z.y1 - z.y0 + 1) * TILE };
+      this.entities.push(new TollRing(z.origin[0] * TILE, z.origin[1] * TILE, { era: THEN, speed: z.speed, maxR: z.maxR, bounds }));
+      this.sound.play('distantToll');
+      this.shake(0.6, 1.5);
+      this.tollT = z.period;
+      this.tollWarned = false;
+      this.tollWarn = 0;
+    }
   }
 
   // ---------- the harpoon ----------
@@ -214,6 +453,7 @@ class Game {
     let best = null, bestScore = Infinity;
     for (const e of this.entities) {
       if (!e.isAnchor || !e.existsIn(this.era)) continue;
+      if (e === p.lastAnchor && p.lastAnchorT > 0) continue;
       const dx = e.cx - p.cx, dy = e.cy - p.cy;
       const d = Math.hypot(dx, dy);
       if (d > HOOK.RANGE || dy > 8) continue;
@@ -238,7 +478,7 @@ class Game {
   updateBossFight(dt) {
     this.bannerT = Math.max(0, this.bannerT - dt);
     const b = this.boss;
-    if (!b || this.fight || b.state !== 'dormant' || this.era !== THEN) return;
+    if (!b || this.fight || b.state !== 'dormant' || (b.wakeEra != null && this.era !== b.wakeEra)) return;
     const a = this.stage.arena, p = this.player;
     if (p.cx > a.triggerX * TILE && p.cx < (a.x1 + 1) * TILE && p.cy < (a.floor + 1) * TILE && p.cy > a.y0 * TILE) {
       this.fight = true;
@@ -253,10 +493,16 @@ class Game {
   onBossDefeated() {
     this.fight = false;
     this.level.gatesClosed = false;
-    this.level.sealOpen = true;
     this.sound.setBoss(false);
     this.sound.play('gate');
-    this.toast('The way to the Great Bell is open.', 4);
+    if (this.stage.final) {
+      this.finaleReady = true;
+      this.toast('The Great Bell is silent. Turn the watch, one last time.', 6);
+    } else {
+      this.level.sealOpen = true;
+      this.toast('The way to the Great Bell is open.', 4);
+    }
+    this.saveResume();
   }
 
   nearInteractable() {
@@ -292,6 +538,7 @@ class Game {
     this.fx.eraFlashColor = to === NOW ? '127,243,255' : '255,211,107';
     this.fx.burst(p.cx, p.cy, { n: 18, speed: [90, 180], kind: 'streak', color, g: 0, drag: 5, life: 0.45 });
     this.fx.burst(p.cx, p.cy, { n: 10, speed: [10, 40], color, g: -20, life: 0.8, size: 1 });
+    if (this.finaleReady && to === NOW) this.beginFinale();
   }
 
   // Turn what the player did this frame into sound and dust.
@@ -371,13 +618,17 @@ class Game {
     this.trans = null;
     this.sound.setEra(c.era, true);
     this.sound.play('checkpoint');
-    if (this.fight || (this.boss && this.boss.state !== 'dormant' && this.boss.state !== 'wreck')) {
+    this.restoreCrates(this.cpCrates);
+    if (this.stage.tolls) { this.tollT = this.stage.tolls.period; this.tollWarned = false; this.tollWarn = 0; }
+    if (this.fight || (this.boss && !['dormant', 'wreck', 'silent'].includes(this.boss.state))) {
       // a fresh attempt at the boss
       this.fight = false;
       this.boss.reset();
       this.level.gatesClosed = false;
       this.entities = this.entities.filter((e) => !e.projectile);
       this.sound.setBoss(false);
+      // fell while the last damper was settling: the bell is silent all the same
+      if (this.stage.final && this.boss.state === 'silent' && !this.finaleReady) this.onBossDefeated();
     }
     this.fx.ring(this.player.cx, this.player.cy, '255,211,107', 30, 0.6, 2);
     this.snapCamera();
@@ -385,6 +636,7 @@ class Game {
 
   collectNote(i) {
     this.notes.add(i);
+    Save.addNote(this.stageIndex, i);
     const n = this.stage.notes[i];
     if (n.unlocksWatch) this.hasWatch = true;
     if (n.ability === 'harpoon') {
@@ -396,6 +648,11 @@ class Game {
     const p = this.player;
     this.fx.burst(p.cx, p.cy, { n: 16, speed: [30, 80], color: '#fff1c0', g: -10, drag: 3, life: 0.9, size: 1 });
     this.fx.ring(p.cx, p.cy, '255,241,192', 26, 0.5, 2);
+    this.showNote(n);
+  }
+
+  // from: 'title' or 'paused' when reading from the journal, so closing goes back there
+  showNote(n, from = null) {
     $('note-from').textContent = n.from;
     $('note-text').innerHTML = '';
     for (const para of n.text) {
@@ -403,12 +660,21 @@ class Game {
       el.textContent = para;
       $('note-text').appendChild(el);
     }
+    $('note-continue').textContent = from ? 'Jump or tap to go back' : 'Jump or tap to continue';
     this.noteTimer = 0;
+    this.reading = from;
+    if (from) this.sound.play('note');
     this.setState('note');
   }
 
   closeNote() {
     this.sound.play('ui');
+    if (this.reading) {
+      const back = this.reading;
+      this.reading = null;
+      this.setState(back, true);
+      return;
+    }
     this.setState('play');
     if (this.currentNote && this.currentNote.unlocksWatch) {
       this.toast(isTouch ? 'You took the watch. Tap the watch button to turn it.' : 'You took the watch. Press X or Shift to turn it.', 5);
@@ -430,29 +696,27 @@ class Game {
     this.fx.ring(p.cx, p.cy - 6, '159,246,255', 160, 2.2, 3);
     this.fx.ring(p.cx, p.cy - 6, '159,246,255', 90, 1.5, 2);
     this.fx.bubbles(p.cx, p.cy, 10);
-    const m = Math.floor(this.time / 60), s = Math.floor(this.time % 60);
     const [found, total] = this.noteCount();
+    const prevBest = Save.stage(this.stageIndex).best;
+    Save.finishStage(this.stageIndex, this.time);
     const next = this.stageIndex + 1 < STAGES.length;
-    if (next && this.progress < this.stageIndex + 1) { this.progress = this.stageIndex + 1; saveProgress(this.progress); }
+    if (next) Save.data.resume = { stage: this.stageIndex + 1 };
+    Save.write();
     $('end-title').textContent = this.stage.ending.title;
     $('end-text').textContent = this.stage.ending.text;
     $('end-banner').textContent = `End of Stage ${this.stageIndex + 1}`;
+    const record = prevBest != null && this.time < prevBest ? '  ·  New best!' : '';
     $('end-stats').textContent =
-      `Time ${m}:${String(s).padStart(2, '0')}  ·  Notes ${found}/${total}  ·  Falls ${this.deaths}`;
+      `Time ${formatTime(this.time)}  ·  Notes ${found}/${total}  ·  Falls ${this.deaths}${record}`;
     $('end-next').textContent = next
       ? `Press Jump or tap to continue to Stage ${this.stageIndex + 2}`
-      : 'Stage 3 is still being written. Press Jump or tap to return to the title.';
+      : 'Press Jump or tap to return to the title.';
     this.endTimer = 0; // the ending card appears when the bell sequence finishes (see updatePlay)
   }
 
   afterEnd() {
-    if (this.stageIndex + 1 < STAGES.length) {
-      this.loadStage(this.stageIndex + 1);
-      this.setState('play');
-    } else {
-      this.loadStage(this.progress);
-      this.setState('title');
-    }
+    if (this.stageIndex + 1 < STAGES.length) this.startStage(this.stageIndex + 1);
+    else this.setState('title');
   }
 
   noteCount() {
@@ -460,42 +724,274 @@ class Game {
     return [real.filter((i) => this.notes.has(i)).length, real.length];
   }
 
-  // ---------- title menu ----------
+  // ---------- menus ----------
 
-  buildMenu() {
-    const menu = $('menu');
-    menu.innerHTML = '';
-    this.menuItems = [];
-    for (let i = this.progress; i >= 0; i--) {
-      const label = this.progress === 0 ? 'Begin' : `Stage ${i + 1}: ${STAGES[i].name}`;
-      this.menuItems.push(i);
-      const b = document.createElement('button');
-      b.textContent = label;
-      b.addEventListener('click', (e) => { e.stopPropagation(); this.chooseMenu(this.menuItems.indexOf(i)); });
-      menu.appendChild(b);
+  openTitle() {
+    this.confirmNew = false;
+    this.confirmErase = false;
+    const [found, total] = Save.totals();
+    $('title-sub').innerHTML = Save.data.completed
+      ? 'The Great Bell of Carillon is silent, and the sea stayed where it was.<br>' + (found < total ? `You found ${found} of ${total} notes. The watch may still hold a secret.` : 'You found every note. Thank you for listening.')
+      : 'The city of Carillon sank fifty years ago, the night its great bell rang.<br>You are the first diver to go looking for it.';
+    this.menu.open(this.titleRoot());
+  }
+
+  titleRoot() {
+    const r = Save.data.resume;
+    const progress = Save.hasProgress();
+    const items = [];
+    if (r) {
+      items.push({ label: 'Continue', note: `Stage ${r.stage + 1} · ${STAGES[r.stage].name}`, action: () => this.startStage(r.stage, r) });
     }
-    this.menuIndex = 0;
-    this.moveMenu(0);
+    items.push({
+      label: () => (this.confirmNew ? 'Start again from the beginning?' : progress ? 'New game' : 'Begin'),
+      note: () => (this.confirmNew ? 'Press again' : progress ? 'Chapters stay unlocked' : ''),
+      action: () => {
+        if (r && r.cp && !this.confirmNew) { this.confirmNew = true; this.menu.refresh(); this.sound.play('ui'); return; }
+        this.startStage(0);
+      },
+    });
+    if (Save.data.unlocked > 0 || Save.data.completed) items.push({ label: 'Chapters', action: () => this.menu.push(this.chaptersPage()) });
+    if (Save.totals()[0] > 0) {
+      items.push({ label: 'Journal', note: () => `${Save.totals()[0]}/${Save.totals()[1]} notes`, action: () => this.menu.push(this.journalPage('title')) });
+    }
+    items.push({ label: 'Options', action: () => this.menu.push(this.optionsPage(this.menu, true)) });
+    if (Save.data.completed) items.push({ label: 'Credits', action: () => this.playCredits(false) });
+    return { items };
   }
 
-  moveMenu(d) {
-    if (!this.menuItems) return;
-    const n = this.menuItems.length;
-    if (d) this.sound.play('ui');
-    this.menuIndex = (this.menuIndex + d + n) % n;
-    [...$('menu').children].forEach((b, i) => b.classList.toggle('sel', i === this.menuIndex));
+  chaptersPage() {
+    const items = STAGES.slice(0, Save.data.unlocked + 1).map((st, i) => {
+      const rec = Save.stage(i);
+      return {
+        label: `${i + 1}. ${st.name}`,
+        note: `${Save.notesFound(i)}/${Save.realNotes(i).length} notes · ${rec.done ? 'best ' + formatTime(rec.best) : 'unfinished'}`,
+        action: () => this.startStage(i),
+      };
+    });
+    items.push({ label: 'Back', action: () => this.menu.pop() });
+    return { title: 'Chapters', items };
   }
 
-  chooseMenu(i) {
-    if (this.state !== 'title') return;
-    const stage = this.menuItems ? this.menuItems[i] : 0;
-    if (stage !== this.stageIndex || this.time > 0) this.loadStage(stage);
-    this.setState('play');
+  journalPage(from) {
+    const menu = from === 'title' ? this.menu : this.pauseMenu;
+    const items = [];
+    STAGES.forEach((st, si) => {
+      const found = Save.stage(si).notes;
+      const list = st.notes.filter((n, i) => !n.ability && found.includes(i));
+      if (!list.length) return;
+      items.push({ label: `${si + 1} · ${st.name}`, header: true });
+      for (const n of list) items.push({ label: n.from, action: () => this.showNote(n, from) });
+    });
+    if (Save.data.completed && Save.allNotesFound()) {
+      items.push({ label: 'The watch', header: true });
+      items.push({ label: LAST_LETTER.from, action: () => this.showNote(LAST_LETTER, from) });
+    }
+    items.push({ label: 'Back', action: () => menu.pop() });
+    const [found, total] = Save.totals();
+    return { title: 'Journal', text: `${found} of ${total} notes found`, items };
+  }
+
+  optionsPage(menu, fromTitle) {
+    const st = Save.settings;
+    const bar = (v) => '■'.repeat(v) + '□'.repeat(10 - v);
+    const items = [
+      { label: 'Music', value: () => bar(st.music), adjust: (d) => { st.music = clamp(st.music + d, 0, 10); this.applySettings(); } },
+      {
+        label: 'Sound effects',
+        value: () => bar(st.sfx),
+        adjust: (d) => { st.sfx = clamp(st.sfx + d, 0, 10); this.applySettings(); this.sound.play('checkpoint'); },
+      },
+      { label: 'Screen shake', value: () => (st.shake ? 'On' : 'Off'), adjust: () => { st.shake = !st.shake; this.applySettings(); } },
+      { label: 'Hearts', value: () => (st.hearts === 5 ? '5 · Gentle' : '3 · Standard'), adjust: () => { st.hearts = st.hearts === 5 ? 3 : 5; this.applySettings(); } },
+      { label: 'Controls', action: () => menu.push(this.controlsPage(menu)) },
+    ];
+    if (fromTitle) {
+      items.push({
+        label: () => (this.confirmErase ? 'Really erase everything?' : 'Erase saved game'),
+        note: () => (this.confirmErase ? 'Press again' : ''),
+        action: () => {
+          if (!this.confirmErase) { this.confirmErase = true; this.menu.refresh(); this.sound.play('blocked'); return; }
+          Save.erase();
+          this.loadStage(0);
+          this.openTitle();
+          this.toast('Saved game erased', 2);
+        },
+      });
+    }
+    items.push({ label: 'Back', action: () => { this.confirmErase = false; menu.pop(); } });
+    return { title: 'Options', items };
+  }
+
+  controlsPage(menu) {
+    return {
+      title: 'Controls',
+      text: isTouch
+        ? ['◀ ▶ move · JUMP jump and swim · ▼ dive', '◷ turn the watch · HOOK harpoon · USE use things', 'Hold JUMP for a higher jump. Hold ▲ on the line to climb it.']
+        : [
+          'Arrows / WASD — move · Z / Space — jump, swim up',
+          'X / Shift — turn the watch · C / J — harpoon',
+          'Up / Down — climb or lower the line · E / Up — use',
+          'Esc / P — pause · M — sound on or off',
+          'Gamepad: stick to move, A jump, X turn the watch, B harpoon, Y use, Start pause',
+        ],
+      items: [{ label: 'Back', action: () => menu.pop() }],
+    };
+  }
+
+  openPause() {
+    const items = [
+      { label: 'Resume', action: () => this.setState('play') },
+      {
+        label: 'Restart from lantern',
+        disabled: () => !!this.boss && ['dying', 'falling', 'silencing'].includes(this.boss.state),
+        action: () => { this.setState('play'); this.respawn(); },
+      },
+    ];
+    if (Save.totals()[0] > 0) items.push({ label: 'Journal', action: () => this.pauseMenu.push(this.journalPage('paused')) });
+    items.push({ label: 'Options', action: () => this.pauseMenu.push(this.optionsPage(this.pauseMenu, false)) });
+    items.push({ label: 'Quit to title', note: 'Saved at your last lantern', action: () => this.quitToTitle() });
+    this.pauseMenu.open({ items });
+  }
+
+  quitToTitle() {
+    this.saveResume();
+    this.sound.setBoss(false);
+    this.loadStage(this.stageIndex, Save.data.resume);
+    this.setState('title');
+  }
+
+  // ---------- the finale and the credits ----------
+
+  beginFinale() {
+    this.finale = FINALE_TIME;
+    this.finaleReady = false;
+    this.toasts = [];
+    this.sound.setBoss(false);
+    this.sound.play('dawn');
+    this.sound.setDawn(true);
+    Save.finishStage(this.stageIndex, this.time);
+    Save.data.completed = true;
+    Save.data.resume = null;
+    Save.write();
+    this.trueEnding = Save.allNotesFound();
+  }
+
+  rollCredits() {
+    const end = this.stage.ending;
+    const pages = [{ kind: 'text', title: end.title, text: end.text }];
+    if (this.trueEnding) pages.push({ kind: 'letter' });
+    pages.push({ kind: 'roll' }, { kind: 'thanks' });
+    this.playCredits(true, pages);
+  }
+
+  // fromEnding: straight after the finale. Otherwise the Credits item on the title screen.
+  playCredits(fromEnding, pages = [{ kind: 'roll' }, { kind: 'thanks' }]) {
+    this.creditPages = pages;
+    this.creditPage = -1;
+    this.creditsT = 0;
+    this.creditsFromEnding = fromEnding;
+    if (!fromEnding) this.sound.setDawn(true);
+    this.setState('credits');
+    this.nextCreditPage();
+  }
+
+  nextCreditPage() {
+    this.creditPage++;
+    this.pageT = 0;
+    const page = this.creditPages[this.creditPage];
+    if (!page) { this.leaveCredits(); return; }
+    const el = $('credits-page');
+    el.innerHTML = '';
+    el.style.animation = 'none';
+    void el.offsetHeight; // restart the fade-in
+    el.style.animation = '';
+    const add = (tag, text, cls) => {
+      const e = document.createElement(tag);
+      if (cls) e.className = cls;
+      e.textContent = text;
+      el.appendChild(e);
+      return e;
+    };
+    let next = 'Jump or tap to continue';
+    if (page.kind === 'text') {
+      add('h2', page.title);
+      for (const line of page.text) add('p', line, 'sub');
+    } else if (page.kind === 'letter') {
+      const paper = add('div', '', 'paper');
+      const from = document.createElement('div');
+      from.id = 'credits-from';
+      from.className = 'from';
+      from.textContent = LAST_LETTER.from;
+      paper.appendChild(from);
+      for (const line of LAST_LETTER.text) {
+        const p = document.createElement('p');
+        p.textContent = line;
+        paper.appendChild(p);
+      }
+    } else if (page.kind === 'roll') {
+      el.appendChild(this.creditRoll());
+      next = 'Jump or tap to skip';
+    } else if (page.kind === 'thanks') {
+      add('h2', 'The bell is silent');
+      add('p', 'Thank you for playing.', 'sub');
+      const [found, total] = Save.totals();
+      add('p', `Notes found ${found} of ${total}`, 'stats');
+      if (found < total) add('p', 'Some say the watch case holds one more, for whoever reads every note.', 'tiny');
+      next = 'Jump or tap to return to the title';
+    }
+    $('credits-next').textContent = next;
+  }
+
+  creditRoll() {
+    const roll = document.createElement('div');
+    roll.className = 'roll';
+    const inner = document.createElement('div');
+    inner.className = 'roll-inner';
+    roll.appendChild(inner);
+    const sec = (title, ...lines) => {
+      if (title) { const h = document.createElement('h3'); h.textContent = title; inner.appendChild(h); }
+      for (const l of lines) { const p = document.createElement('p'); p.textContent = l; inner.appendChild(p); }
+    };
+    const big = document.createElement('p');
+    big.className = 'big';
+    big.textContent = 'DROWNED BELL';
+    inner.appendChild(big);
+    sec(null, 'An exploration platformer in three stages');
+    sec('MADE BY', 'Claude');
+    sec('FOR', 'willphule');
+    sec('ART, MUSIC AND SOUND', 'Every picture drawn and every note played', 'live by your browser, from code.', 'No image or sound files were used.');
+    sec('WITH THANKS TO THE GAMES THAT INSPIRED IT', 'Metroid · Castlevania · Soul Reaver', 'Prince of Persia · BioShock · Myst · Oddworld');
+    sec('THE PEOPLE OF CARILLON', 'Ilse Varga, clockmaker', 'Teodor, who went up to stop the Bellwright', 'The Bellwright, who did its job', 'The Council, who took the credit');
+    sec('YOUR JOURNEY', ...STAGES.map((st, i) => `${st.name} — ${formatTime(Save.stage(i).best)}`));
+    sec(null, '', 'And the diver, who carried the watch back.');
+    return roll;
+  }
+
+  updateCredits(dt) {
+    this.creditsT += dt;
+    this.pageT += dt;
+    this.sound.tick(dt);
+    const page = this.creditPages[this.creditPage];
+    if (!page) return;
+    const auto = page.kind === 'roll' ? 27 : null;
+    if ((this.pageT > 1.2 && this.input.anyPressed('jump', 'interact', 'pause')) || (auto && this.pageT > auto)) this.nextCreditPage();
+  }
+
+  leaveCredits() {
+    this.sound.setDawn(false);
+    const r = Save.data.resume;
+    this.loadStage(r ? r.stage : 0, r);
+    this.setState('title');
   }
 
   // ---------- effects ----------
 
-  shake(time, amp) { this.shakeT = Math.max(this.shakeT, time); this.shakeAmp = amp; }
+  shake(time, amp) {
+    if (!Save.settings.shake) return;
+    this.shakeT = Math.max(this.shakeT, time);
+    this.shakeAmp = amp;
+  }
 
   toast(text, dur = 2.5) {
     const existing = this.toasts.find((t) => t.text === text);
@@ -545,6 +1041,14 @@ class Game {
   // ---------- render ----------
 
   render() {
+    if (this.state === 'credits' || (this.state === 'title' && Save.data.completed)) {
+      drawDawn(ctx, this.t);
+      if (this.state === 'credits' && this.creditsFromEnding && this.creditsT < 2.5) {
+        ctx.fillStyle = `rgba(255,248,230,${1 - this.creditsT / 2.5})`;
+        ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+      }
+      return;
+    }
     let sx = 0, sy = 0;
     if (this.shakeT > 0) {
       sx = (Math.random() - 0.5) * 2 * this.shakeAmp;
@@ -583,7 +1087,12 @@ class Game {
       ctx.fillStyle = `rgba(255,60,60,${this.flash * 0.8})`;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
-    if (this.state !== 'title') this.renderHUD();
+    if (this.finale > 0) {
+      const k = 1 - this.finale / FINALE_TIME;
+      ctx.fillStyle = `rgba(255,248,230,${Math.min(1, k * k * 1.15)})`;
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
+    if (this.state !== 'title' && this.finale <= 0) this.renderHUD();
     if (this.fade > 0) {
       ctx.fillStyle = `rgba(0,0,0,${this.fade})`;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
@@ -593,7 +1102,7 @@ class Game {
   renderWorld(era, cam) {
     const realEra = this.era;
     this.era = era; // entities colour themselves by the era being drawn
-    drawBackground(ctx, era, cam, this.t);
+    drawBackground(ctx, era, cam, this.t, this.stage.background);
     this.fx.drawOverlay(ctx, era); // lightning lights up the sky behind the city
     ctx.save();
     ctx.translate(-cam.x, -cam.y);
@@ -620,7 +1129,9 @@ class Game {
     if (this.dying <= 0) this.player.draw(ctx, this.t, this.hasWatch);
     this.fx.draw(ctx, era);
 
-    drawWater(ctx, this.level, era, cam, this.t);
+    // in the finale the water drains away as the city forgets it ever drowned
+    const waterAlpha = this.finale > 0 ? clamp((this.finale - 1.4) / (FINALE_TIME - 1.4), 0, 1) : 1;
+    drawWater(ctx, this.level, era, cam, this.t, waterAlpha);
     ctx.restore();
 
     if (era === NOW) {
@@ -686,19 +1197,19 @@ class Game {
       ctx.textAlign = 'center';
       ctx.font = '16px Silkscreen, monospace';
       ctx.fillStyle = `rgba(255,207,107,${a})`;
-      ctx.fillText('THE BELLWRIGHT', VIEW_W / 2, 80);
+      ctx.fillText(b.title, VIEW_W / 2, 80);
       ctx.font = FONT;
       ctx.fillStyle = `rgba(230,220,200,${a * 0.8})`;
-      ctx.fillText('Keeper of the Great Bell', VIEW_W / 2, 94);
+      ctx.fillText(b.subtitle, VIEW_W / 2, 94);
     }
     if (!this.fight) return;
-    const w = 160, x = VIEW_W / 2 - w / 2, y = VIEW_H - 46;
+    const w = 160, x = VIEW_W / 2 - w / 2, y = 20;
     ctx.fillStyle = 'rgba(5,12,16,0.7)';
     ctx.fillRect(x - 4, y - 12, w + 8, 22);
     ctx.font = FONT;
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffcf6b';
-    ctx.fillText('THE BELLWRIGHT', VIEW_W / 2, y - 3);
+    ctx.fillText(b.title, VIEW_W / 2, y - 3);
     for (let i = 0; i < b.maxHp; i++) {
       const sw = (w - (b.maxHp - 1) * 4) / b.maxHp;
       ctx.fillStyle = i < b.hp ? '#e0aa55' : '#3a3f48';
@@ -706,7 +1217,54 @@ class Game {
     }
   }
 
+  // The stage title card, drawn over the first few seconds of a stage.
+  drawIntro() {
+    if (this.introT <= 0 || this.state !== 'play') return;
+    const a = Math.min(1, this.introT / 0.8, (INTRO_TIME - this.introT) / 0.6);
+    if (a <= 0) return;
+    ctx.fillStyle = `rgba(3,10,14,${0.55 * a})`;
+    ctx.fillRect(0, 92, VIEW_W, 46);
+    ctx.textAlign = 'center';
+    ctx.font = FONT;
+    ctx.fillStyle = `rgba(255,211,107,${a})`;
+    ctx.fillText(`STAGE ${this.stageIndex + 1}`, VIEW_W / 2, 108);
+    ctx.font = '16px Silkscreen, monospace';
+    ctx.fillStyle = `rgba(230,245,245,${a})`;
+    ctx.fillText(this.stage.name.toUpperCase(), VIEW_W / 2, 128);
+  }
+
+  // A gold glow creeping down from the top of the screen as the distant bell gathers itself.
+  drawTollWarning() {
+    if (this.tollWarn <= 0) return;
+    const k = this.tollWarn;
+    const pulse = 0.75 + 0.25 * Math.sin(this.t * 14);
+    const g = ctx.createLinearGradient(0, 0, 0, 90);
+    g.addColorStop(0, `rgba(255,200,100,${(this.era === THEN ? 0.45 : 0.18) * k * pulse})`);
+    g.addColorStop(1, 'rgba(255,200,100,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, VIEW_W, 90);
+    if (this.era === THEN) {
+      ctx.textAlign = 'center';
+      ctx.font = FONT;
+      ctx.fillStyle = `rgba(255,230,170,${k})`;
+      ctx.fillText('THE BELL IS ABOUT TO TOLL', VIEW_W / 2, 20);
+    }
+  }
+
+  drawFinalePrompt() {
+    if (!this.finaleReady || this.state !== 'play') return;
+    const a = 0.6 + 0.4 * Math.sin(this.t * 3);
+    ctx.textAlign = 'center';
+    ctx.font = '16px Silkscreen, monospace';
+    ctx.fillStyle = `rgba(255,236,190,${a})`;
+    ctx.fillText('TURN THE WATCH', VIEW_W / 2, 70);
+    ctx.font = FONT;
+    ctx.fillStyle = `rgba(230,240,240,${a * 0.8})`;
+    ctx.fillText(isTouch ? 'tap the watch button' : 'X / SHIFT', VIEW_W / 2, 84);
+  }
+
   renderHUD() {
+    this.drawTollWarning();
     ctx.save();
     ctx.scale(2, 2);
     for (let i = 0; i < this.maxHearts; i++) drawHeart(ctx, 5 + i * 9, 5, i < this.hearts);
@@ -741,9 +1299,13 @@ class Game {
       const a = this.t * (now ? 1 : -1) * 2;
       ctx.beginPath(); ctx.moveTo(x + 10, y + 9); ctx.lineTo(x + 10 + Math.cos(a) * 4, y + 9 + Math.sin(a) * 4); ctx.stroke();
       ctx.fillStyle = this.shiftCooldown > 0 ? 'rgba(255,255,255,0.4)' : color;
+      ctx.textAlign = 'left';
       ctx.fillText(label, x + 21, y + 13);
     }
 
+    this.drawIntro();
+    this.drawFinalePrompt();
+    ctx.font = FONT;
     ctx.textAlign = 'center';
     this.toasts.forEach((t, i) => {
       const y = VIEW_H - 22 - (this.toasts.length - 1 - i) * 16;
@@ -780,11 +1342,10 @@ function setupTouch(game) {
     btn.addEventListener('pointercancel', off);
     btn.addEventListener('lostpointercapture', off);
   }
-  // Tap / click the overlays to continue
-  $('title').addEventListener('click', () => game.state === 'title' && game.chooseMenu(game.menuIndex));
+  // Tap / click the overlays to continue (menus have their own buttons)
   $('note').addEventListener('click', () => game.state === 'note' && game.noteTimer > 0.35 && game.closeNote());
-  $('pause').addEventListener('click', () => game.state === 'paused' && game.setState('play'));
   $('end').addEventListener('click', () => game.state === 'end' && game.endTimer > 1 && game.afterEnd());
+  $('credits').addEventListener('click', () => game.state === 'credits' && game.pageT > 1.2 && game.nextCreditPage());
   $('pause-btn').addEventListener('click', (e) => { e.stopPropagation(); if (game.state === 'play') game.setState('paused'); });
 }
 

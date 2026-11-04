@@ -68,6 +68,41 @@ const STAGE2_NOTES = [
   },
 ];
 
+const STAGE3_NOTES = [
+  {
+    from: 'A Treasury ledger, swollen with seawater',
+    text: [
+      'COUNCIL OF CARILLON — ACCOUNTS FOR THE GREAT BELL',
+      'To I. Varga, for the casting of the Great Bell: 1,200 crowns. Paid.',
+      'To I. Varga, for a second bell, small, of silver, "to be carried": refused. The Council has no need of a pocket watch.',
+    ],
+  },
+  {
+    from: 'Teodor\'s notes, scratched into a beam',
+    text: [
+      'At the test ringing I heard the Great Bell twice. Once here in the tower — and once very far off, thin and blue, as if from under the sea.',
+      'Ilse went white. "That is where it will send the water," she said. "Not away. Only later."',
+      'The ballast blocks down here still slide, if you put your back into it.',
+    ],
+  },
+  {
+    from: 'A page from the clockmaker\'s notebook',
+    text: [
+      'A bell that rings in two times can only be stilled in two times.',
+      'There are three dampers on the frame, worked by levers on the galleries and the beam. Drop all three while it rings.',
+      'Gold is the night I live in. Blue is the morning you live in. When it rings gold, stand in your time. When it rings blue, stand in mine.',
+    ],
+  },
+  {
+    from: 'Pinned to the door of the bell chamber',
+    text: [
+      'Midnight. The Council\'s men are on the stairs and Teodor has gone up to the Bellwright.',
+      'I cannot reach the dampers in time. So I am giving the watch to the water. The sea will carry it to you, fifty years on, and you will carry it back.',
+      'Do not let it ring in either time. — I.',
+    ],
+  },
+];
+
 export const STORY = [
   {
     notes: STAGE1_NOTES,
@@ -83,4 +118,27 @@ export const STORY = [
       text: 'The Bellwright is silent at last. Above, the Great Bell hangs in the dark — and the watch in your hand has begun to tick backwards.',
     },
   },
+  {
+    notes: STAGE3_NOTES,
+    ending: {
+      title: 'Carillon',
+      text: [
+        'Fifty years ago, on the last night of the rains, the Great Bell of Carillon did not ring.',
+        'The storm broke against the seawall and went no further. In the morning the Council took the credit.',
+        'You turned the watch one last time, and the water was gone. Gulls. Wet slate roofs. A bell tower standing straight against a pale sky, and streets full of people who never drowned.',
+        'The watch has stopped. As far as anyone can tell, you are the only one who remembers the sea.',
+      ],
+    },
+  },
 ];
+
+// The letter you only find if you have read every note in the city.
+export const LAST_LETTER = {
+  from: 'Inside the watch case, folded very small',
+  text: [
+    'If you have found this, you have read every word I left. Then you know what I never told the Council:',
+    'the bell never called the sea. It only remembered it, the way this watch remembers me.',
+    'By the time you read this I will be an old woman, in your morning, still listening for a bell that never rings. Come and find me on Varga Street. I will put the kettle on.',
+    '— Ilse',
+  ],
+};

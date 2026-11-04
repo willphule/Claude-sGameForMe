@@ -1,6 +1,7 @@
 // The stages of the game, with their maps, hints and starting abilities.
 import { MAP } from './level.js';
 import { MAP2 } from './stage2map.js';
+import { MAP3 } from './stage3map.js';
 import { STORY } from './story.js';
 
 // World hints, in tile coordinates. `touch` replaces the text on phones and tablets.
@@ -23,6 +24,14 @@ const HINTS2 = [
   { tx: 31.3, ty: 11.6, lines: ['THE BELLWRIGHT'] },
 ];
 
+const HINTS3 = [
+  { tx: 9.5, ty: 55.5, lines: ['Walk into a ballast', 'block to push it.', 'It only moves in THEN.'] },
+  { tx: 47.6, ty: 54.2, lines: ['A weight on the plate', 'holds the door open'] },
+  { tx: 83, ty: 55.5, lines: ['Far above, the Great', 'Bell is tolling'] },
+  { tx: 85.6, ty: 47.6, lines: ['Its toll only', 'shakes the THEN'] },
+  { tx: 81.4, ty: 38.4, lines: ['Hanging from a ring,', 'you can still turn', 'the watch'] },
+];
+
 export const STAGES = [
   {
     name: 'The Drowned Quarter',
@@ -39,5 +48,18 @@ export const STAGES = [
     startWithWatch: true,
     // the boss arena, in tiles: interior columns and rows, plus the floor row
     arena: { x0: 41, x1: 70, y0: 3, floor: 17, triggerX: 43 },
+  },
+  {
+    name: 'The Great Bell',
+    map: MAP3,
+    hints: HINTS3,
+    ...STORY[2],
+    startWithWatch: true,
+    startWithHarpoon: true,
+    background: 'belfry',
+    arena: { x0: 106, x1: 135, y0: 4, floor: 19, triggerX: 107 },
+    // the Great Bell tolls far overhead while you climb the counterweight shaft
+    tolls: { x0: 81, x1: 99, y0: 15, y1: 61, origin: [90.5, 2], period: 4.8, warn: 1.4, speed: 900, maxR: 1100 },
+    final: true,
   },
 ];

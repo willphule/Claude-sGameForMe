@@ -171,6 +171,10 @@ export function drawDynamicTiles(ctx, level, era, cam, t) {
         drawGate(ctx, tx * TILE, ty * TILE, level.gatesClosed, level.get(tx, ty - 1) !== '|', era);
       } else if (c === ':') {
         drawSeal(ctx, tx * TILE, ty * TILE, level.sealOpen, level.get(tx, ty - 1) !== ':', era);
+      } else if (c === '_') {
+        drawPlate(ctx, tx * TILE, ty * TILE, level.plateAt(tx, ty), era);
+      } else if (c === '=') {
+        drawDoor(ctx, level, tx, ty, era);
       }
     }
   }
@@ -206,8 +210,56 @@ function drawSeal(ctx, px, py, open, top, era) {
   }
 }
 
-export function drawWater(ctx, level, era, cam, t) {
-  if (era !== NOW) return;
+// A pressure plate set into the floor. It sinks and lights up while something heavy is on it.
+function drawPlate(ctx, px, py, plate, era) {
+  const down = plate && plate.pressed;
+  const now = era === NOW;
+  ctx.fillStyle = now ? '#18262b' : '#4a3424';
+  ctx.fillRect(px, py + 12, TILE, 4);
+  ctx.fillStyle = down ? (now ? '#5fae8e' : '#ffd36b') : (now ? '#3c4c48' : '#a8742f');
+  ctx.fillRect(px + 1, py + (down ? 13 : 11), TILE - 2, 2);
+  ctx.fillStyle = now ? '#2c3a3c' : '#6b4520';
+  ctx.fillRect(px + 1, py + (down ? 15 : 13), TILE - 2, 1);
+  if (down) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = now ? 'rgba(95,174,142,0.25)' : 'rgba(255,211,107,0.25)';
+    ctx.fillRect(px - 2, py + 8, TILE + 4, 6);
+    ctx.restore();
+  }
+}
+
+// A weighted door: an iron shutter that rolls up into the lintel while a plate is pressed.
+function drawDoor(ctx, level, tx, ty, era) {
+  let top = ty, bot = ty;
+  while (level.get(tx, top - 1) === '=') top--;
+  while (level.get(tx, bot + 1) === '=') bot++;
+  const px = tx * TILE, py = ty * TILE;
+  const bottom = top * TILE + (bot - top + 1) * TILE * (1 - level.doorAnim);
+  const h = Math.min(TILE, bottom - py);
+  const now = era === NOW;
+  if (h > 0) {
+    ctx.fillStyle = now ? '#24302f' : '#3b3632';
+    ctx.fillRect(px + 2, py, TILE - 4, h);
+    ctx.fillStyle = now ? '#2f4440' : '#56504a';
+    for (let y = 0; y < h; y += 4) ctx.fillRect(px + 2, py + y, TILE - 4, 1);
+    ctx.fillStyle = now ? '#3d7a5c' : '#a8742f';
+    ctx.fillRect(px + 2, py, 2, h);
+    ctx.fillRect(px + TILE - 4, py, 2, h);
+    if (py + h >= bottom - 0.5) {
+      ctx.fillStyle = now ? '#5a3d2e' : '#c9973f';
+      ctx.fillRect(px + 2, py + h - 2, TILE - 4, 2);
+    }
+  }
+  if (ty === top) {
+    ctx.fillStyle = now ? '#1c2a2e' : '#3a2a1a';
+    ctx.fillRect(px, py, TILE, 3);
+  }
+}
+
+export function drawWater(ctx, level, era, cam, t, alpha = 1) {
+  if (era !== NOW || alpha <= 0) return;
+  if (alpha < 1) { ctx.save(); ctx.globalAlpha = alpha; }
   const x0 = Math.max(0, Math.floor(cam.x / TILE)), x1 = Math.min(level.w - 1, Math.floor((cam.x + VIEW_W) / TILE));
   const y0 = Math.max(0, Math.floor(cam.y / TILE)), y1 = Math.min(level.h - 1, Math.floor((cam.y + VIEW_H) / TILE));
   for (let ty = y0; ty <= y1; ty++) {
@@ -237,6 +289,7 @@ export function drawWater(ctx, level, era, cam, t) {
       }
     }
   }
+  if (alpha < 1) ctx.restore();
 }
 
 // ---------- Backgrounds ----------
@@ -252,7 +305,8 @@ for (let i = 0; i < 40; i++) {
   });
 }
 
-export function drawBackground(ctx, era, cam, t) {
+export function drawBackground(ctx, era, cam, t, kind = 'city') {
+  if (kind === 'belfry') { drawBelfry(ctx, era, cam, t); return; }
   const grad = ctx.createLinearGradient(0, 0, 0, VIEW_H);
   if (era === NOW) {
     grad.addColorStop(0, '#0d3140');
@@ -338,6 +392,199 @@ export function drawBackground(ctx, era, cam, t) {
       ctx.moveTo(sx, sy);
       ctx.lineTo(sx - 3, sy + 9);
     }
+    ctx.stroke();
+  }
+}
+
+// Inside the belfry: tall arched windows onto the storm, and the great timber frame that holds the bells.
+function drawBelfry(ctx, era, cam, t) {
+  const now = era === NOW;
+  const grad = ctx.createLinearGradient(0, 0, 0, VIEW_H);
+  if (now) { grad.addColorStop(0, '#0b2a35'); grad.addColorStop(1, '#020b10'); }
+  else { grad.addColorStop(0, '#24161e'); grad.addColorStop(1, '#3e2320'); }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+  // arched windows, far back
+  const par = 0.18;
+  for (let i = -1; i < 4; i++) {
+    const wx = Math.floor((cam.x * par) / 200) * 200 + i * 200;
+    const sx = wx - cam.x * par + 60, sy = 60 - ((cam.y * par) % 320);
+    for (const oy of [0, 320]) {
+      const y = sy + oy;
+      ctx.fillStyle = now ? '#0e3a47' : '#5a3036';
+      ctx.beginPath();
+      ctx.moveTo(sx, y + 110); ctx.lineTo(sx, y + 20); ctx.arc(sx + 20, y + 20, 20, Math.PI, 0); ctx.lineTo(sx + 40, y + 110);
+      ctx.fill();
+      if (!now) {
+        // rain beyond the glass
+        ctx.strokeStyle = 'rgba(210,200,255,0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let r = 0; r < 6; r++) {
+          const rx = sx + 4 + ((hash(i + r, oy) * 32 + t * 30) % 32);
+          const ry = y + 10 + ((hash(r, i) * 90 + t * 260) % 90);
+          ctx.moveTo(rx, ry); ctx.lineTo(rx - 2, ry + 7);
+        }
+        ctx.stroke();
+      }
+      ctx.fillStyle = now ? '#082630' : '#2a1820';
+      ctx.fillRect(sx + 19, y + 2, 2, 108);
+      ctx.fillRect(sx, y + 60, 40, 2);
+    }
+  }
+
+  // the timber frame
+  const par2 = 0.4;
+  const beam = now ? '#081f27' : '#1e1216';
+  const edge = now ? '#0f2f3a' : '#33202a';
+  for (let i = -1; i < 5; i++) {
+    const wx = Math.floor((cam.x * par2) / 150) * 150 + i * 150;
+    const sx = wx - cam.x * par2;
+    const seed = Math.round(wx / 150);
+    ctx.fillStyle = beam;
+    ctx.fillRect(sx, 0, 12, VIEW_H);
+    ctx.fillStyle = edge;
+    ctx.fillRect(sx, 0, 2, VIEW_H);
+    // braces and cross beams
+    for (let j = -1; j < 3; j++) {
+      const by = j * 140 - ((cam.y * par2) % 140);
+      const broken = now && hash(seed, j) > 0.6;
+      ctx.fillStyle = beam;
+      ctx.fillRect(sx, by, broken ? 70 : 150, 10);
+      ctx.save();
+      ctx.translate(sx + 12, by + 10);
+      ctx.rotate(0.75);
+      ctx.fillRect(0, 0, broken ? 60 : 180, 8);
+      ctx.restore();
+    }
+  }
+
+  if (now) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 3; i++) {
+      const sx = ((i * 200 - cam.x * 0.25) % 600 + 600) % 600 - 60 + Math.sin(t * 0.3 + i) * 10;
+      ctx.fillStyle = 'rgba(90,200,230,0.03)';
+      ctx.beginPath();
+      ctx.moveTo(sx, 0); ctx.lineTo(sx + 26, 0); ctx.lineTo(sx + 80, VIEW_H); ctx.lineTo(sx + 16, VIEW_H);
+      ctx.fill();
+    }
+    ctx.restore();
+    ctx.fillStyle = 'rgba(180,240,255,0.3)';
+    for (let i = 0; i < 30; i++) {
+      const sx = ((hash(i, 7) * 600 - cam.x * 0.5) % 520 + 520) % 520 - 20;
+      const sy = ((hash(i, 8) * 320 - t * (5 + hash(i, 9) * 7) - cam.y * 0.5) % 300 + 300) % 300 - 15;
+      ctx.fillRect(sx, sy, 1, 1);
+    }
+  } else {
+    // dust shaken loose by the bells
+    ctx.fillStyle = 'rgba(230,200,160,0.25)';
+    for (let i = 0; i < 24; i++) {
+      const sx = ((hash(i, 3) * 600 - cam.x * 0.5 + Math.sin(t + i) * 4) % 520 + 520) % 520 - 20;
+      const sy = ((hash(i, 4) * 320 + t * (8 + hash(i, 5) * 10) - cam.y * 0.5) % 300 + 300) % 300 - 15;
+      ctx.fillRect(sx, sy, 1, 1);
+    }
+  }
+}
+
+// The ending: Carillon at dawn, dry and upright, the way it was meant to be.
+export function drawDawn(ctx, t) {
+  const HZ = 186; // the horizon
+  const sky = ctx.createLinearGradient(0, 0, 0, HZ);
+  sky.addColorStop(0, '#6f9fc8');
+  sky.addColorStop(0.6, '#e9c3a6');
+  sky.addColorStop(1, '#ffe1b0');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+  // the sun, just clearing the sea
+  const sx = 132, sy = HZ - 8 - Math.min(18, t * 0.5);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createRadialGradient(sx, sy, 6, sx, sy, 150);
+  g.addColorStop(0, 'rgba(255,240,200,0.65)');
+  g.addColorStop(1, 'rgba(255,240,200,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.restore();
+  ctx.fillStyle = '#fff3d6';
+  ctx.beginPath(); ctx.arc(sx, sy, 16, 0, Math.PI * 2); ctx.fill();
+
+  // slow clouds
+  ctx.fillStyle = 'rgba(255,240,230,0.5)';
+  for (let i = 0; i < 6; i++) {
+    const cx = ((hash(i, 1) * 600 + t * (3 + i)) % 640) - 80;
+    const cy = 18 + hash(i, 2) * 70;
+    const w = 36 + hash(i, 3) * 56;
+    ctx.beginPath(); ctx.ellipse(cx, cy, w, 5 + hash(i, 4) * 4, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // the calm sea, and a path of light across it
+  const sea = ctx.createLinearGradient(0, HZ, 0, VIEW_H);
+  sea.addColorStop(0, '#a9c6cc');
+  sea.addColorStop(1, '#4a7890');
+  ctx.fillStyle = sea;
+  ctx.fillRect(0, HZ, VIEW_W, VIEW_H - HZ);
+  ctx.fillStyle = 'rgba(255,245,215,0.85)';
+  for (let i = 0; i < 30; i++) {
+    const gy = HZ + 2 + hash(i, 8) * 40;
+    const spread = 8 + (gy - HZ) * 0.9;
+    const gx = sx + (hash(i, 9) - 0.5) * spread * 2 + Math.sin(t * 1.3 + i) * 3;
+    if (Math.sin(t * 2 + i * 1.7) > 0.1) ctx.fillRect(gx, gy, 3 + hash(i, 7) * 6, 1);
+  }
+
+  // the city on the shore, upright and dry: far roofs, then near ones
+  const TX = 368; // the bell tower
+  for (let layer = 0; layer < 2; layer++) {
+    const base = VIEW_H;
+    const n = 20;
+    for (let i = 0; i < n; i++) {
+      const x = i * 26 + (layer ? 13 : 0) + hash(i, layer) * 8 - 12;
+      const w = 18 + hash(i, layer + 5) * 14;
+      const h = (layer ? 22 : 42) + hash(i, layer + 9) * (layer ? 26 : 34);
+      if (layer === 0 && Math.abs(x + w / 2 - TX) < 22) continue;
+      const top = base - h;
+      ctx.fillStyle = layer ? '#5a3a46' : '#8a6070';
+      ctx.fillRect(x, top, w, h);
+      ctx.beginPath(); ctx.moveTo(x - 2, top); ctx.lineTo(x + w / 2, top - 8 - hash(i, 3) * 7); ctx.lineTo(x + w + 2, top); ctx.fill();
+      for (let wy = top + 6; wy < base - 4; wy += 9) {
+        for (let wx = x + 3; wx < x + w - 3; wx += 6) {
+          const r = hash(Math.floor(wx) + layer * 99, Math.floor(wy));
+          if (r > 0.72) { ctx.fillStyle = r > 0.93 ? '#ffe7a8' : layer ? '#7a5060' : '#b98a8a'; ctx.fillRect(wx, wy, 2, 3); }
+        }
+      }
+    }
+  }
+  // the bell tower, with the Great Bell hanging silent in its arch
+  const ty = 92;
+  ctx.fillStyle = '#7a5262';
+  ctx.fillRect(TX - 12, ty, 24, VIEW_H - ty);
+  ctx.beginPath(); ctx.moveTo(TX - 16, ty); ctx.lineTo(TX, ty - 30); ctx.lineTo(TX + 16, ty); ctx.fill();
+  ctx.fillStyle = '#4a2e3a';
+  ctx.beginPath(); ctx.moveTo(TX - 8, ty + 30); ctx.lineTo(TX - 8, ty + 14); ctx.arc(TX, ty + 14, 8, Math.PI, 0); ctx.lineTo(TX + 8, ty + 30); ctx.fill();
+  ctx.fillStyle = '#d9a24f';
+  ctx.beginPath(); ctx.moveTo(TX - 5, ty + 27); ctx.quadraticCurveTo(TX - 5, ty + 15, TX, ty + 15); ctx.quadraticCurveTo(TX + 5, ty + 15, TX + 5, ty + 27); ctx.fill();
+  ctx.fillStyle = '#ffe3a0';
+  ctx.fillRect(TX - 3, ty + 18, 1, 6);
+  ctx.fillStyle = '#5a3a46';
+  ctx.fillRect(TX - 10, ty + 50, 20, 3);
+  ctx.fillStyle = '#ffe7a8';
+  ctx.beginPath(); ctx.arc(TX, ty + 66, 5, 0, Math.PI * 2); ctx.fill(); // the clock face, stopped
+  ctx.fillStyle = '#5a3a46';
+  ctx.fillRect(TX - 0.5, ty + 62, 1, 4);
+  ctx.fillRect(TX, ty + 66, 3, 1);
+
+  // gulls
+  ctx.strokeStyle = 'rgba(60,50,60,0.7)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const gx = ((hash(i, 11) * 500 + t * (12 + i * 3)) % 560) - 40;
+    const gy = 40 + hash(i, 12) * 80 + Math.sin(t * 0.8 + i) * 5;
+    const flap = Math.sin(t * 6 + i) * 2;
+    ctx.beginPath();
+    ctx.moveTo(gx - 4, gy - flap); ctx.quadraticCurveTo(gx - 2, gy - 2, gx, gy);
+    ctx.quadraticCurveTo(gx + 2, gy - 2, gx + 4, gy - flap);
     ctx.stroke();
   }
 }

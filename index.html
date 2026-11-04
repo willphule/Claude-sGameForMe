@@ -16,10 +16,10 @@
 
     <div id="title" class="overlay">
       <h1>Drowned Bell</h1>
-      <p class="sub">The city of Carillon sank fifty years ago, the night its great bell rang.<br>You are the first diver to go looking for it.</p>
-      <div id="menu"></div>
-      <p class="start">Press <b>Jump</b> or tap to begin</p>
-      <div class="controls">
+      <p class="sub" id="title-sub">The city of Carillon sank fifty years ago, the night its great bell rang.<br>You are the first diver to go looking for it.</p>
+      <div id="menu" class="menu"></div>
+      <p class="menu-hint" id="menu-hint">↑ ↓ choose · Jump select · Esc back</p>
+      <div class="controls" id="title-controls">
         <span><b>Arrows / WASD</b> move</span>
         <span><b>Z / Space</b> jump · swim</span>
         <span><b>X / Shift</b> turn the watch</span>
@@ -35,13 +35,13 @@
       <div class="paper">
         <div id="note-from"></div>
         <div id="note-text"></div>
-        <div class="continue">Jump or tap to continue</div>
+        <div class="continue" id="note-continue">Jump or tap to continue</div>
       </div>
     </div>
 
     <div id="pause" class="overlay hidden">
       <h2>Paused</h2>
-      <p class="start">Press Jump or tap to resume</p>
+      <div id="pause-menu" class="menu"></div>
     </div>
 
     <div id="end" class="overlay hidden">
@@ -50,6 +50,11 @@
       <p id="end-banner" class="banner">End of Stage 1</p>
       <p id="end-stats" class="stats"></p>
       <p id="end-next" class="tiny"></p>
+    </div>
+
+    <div id="credits" class="overlay hidden">
+      <div id="credits-page"></div>
+      <p class="credits-next" id="credits-next"></p>
     </div>
 
     <button id="pause-btn" aria-label="Pause">II</button>

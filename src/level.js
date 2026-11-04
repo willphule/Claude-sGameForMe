@@ -14,6 +14,10 @@
 //   H  the harpoon (ability pickup)   W the Bellwright (boss)
 //   |  arena gate: open, but slams shut while the boss fight is on
 //   :  sealed door: solid until the boss is defeated
+//   X  ballast block: pushable in THEN, crusted in place in NOW (where it is, it is in both eras)
+//   _  pressure plate: pressed by a block, or by you standing on it
+//   =  weighted door: open while any plate in the level is pressed
+//   L  damper lever   Q  the Great Bell (final boss)
 
 export const TILE = 16;
 export const NOW = 0;
@@ -53,8 +57,8 @@ export const MAP = [
   '########################################################################################################'
 ];
 
-const OVERLAY = 'PG@NCVKJEOABHW|:';
-const SPAWNS = '@NCVKJEOABHW';
+const OVERLAY = 'PG@NCVKJEOABHW|:XLQ_=';
+const SPAWNS = '@NCVKJEOABHWXLQ';
 
 export class Level {
   constructor(rows = MAP) {
@@ -68,6 +72,10 @@ export class Level {
     this.flooded = false;
     this.gatesClosed = false;   // '|' tiles
     this.sealOpen = false;      // ':' tiles
+    this.doorsOpen = false;     // '=' tiles
+    this.doorAnim = 0;          // 0 closed .. 1 open, for drawing
+    this.crate = new Uint8Array(this.w * this.h); // tiles holding a ballast block
+    this.plates = [];
     for (let y = 0; y < this.h; y++) {
       const row = rows[y];
       for (let x = 0; x < this.w; x++) {
@@ -80,6 +88,7 @@ export class Level {
           this.spawns.push({ type: c, tx: x, ty: y });
           c = w || ' ';
         }
+        if (c === '_') this.plates.push({ tx: x, ty: y, pressed: false });
         this.tiles.push(c);
         this.water.push(c === '~' || c === 'D' ? c : w);
       }
@@ -94,7 +103,23 @@ export class Level {
   isSolid(tx, ty, era) {
     const c = this.get(tx, ty);
     return c === '#' || (c === 'P' && era === THEN) || (c === 'F' && era === NOW)
-      || (c === '|' && this.gatesClosed) || (c === ':' && !this.sealOpen);
+      || (c === '|' && this.gatesClosed) || (c === ':' && !this.sealOpen)
+      || (c === '=' && !this.doorsOpen) || this.hasCrate(tx, ty);
+  }
+
+  plateAt(tx, ty) { return this.plates.find((p) => p.tx === tx && p.ty === ty); }
+
+  hasCrate(tx, ty) {
+    return tx >= 0 && ty >= 0 && tx < this.w && ty < this.h && this.crate[ty * this.w + tx] === 1;
+  }
+
+  setCrate(tx, ty, on) { this.crate[ty * this.w + tx] = on ? 1 : 0; }
+
+  // Can a ballast block move into this tile? It has to be clear in both eras.
+  crateFree(tx, ty) {
+    if (tx < 0 || ty < 0 || tx >= this.w || ty >= this.h || this.hasCrate(tx, ty)) return false;
+    const c = this.get(tx, ty);
+    return !'#PF|:='.includes(c);
   }
 
   isWater(tx, ty, era) {
@@ -109,6 +134,7 @@ export class Level {
   }
 
   isHazard(tx, ty, era) {
+    if (this.hasCrate(tx, ty)) return false; // a block sitting on spikes covers them
     const c = this.get(tx, ty);
     return c === '^' || (c === 'G' && era === THEN);
   }

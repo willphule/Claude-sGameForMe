@@ -137,19 +137,67 @@ h2 { font-size: calc(var(--s) * 16px); }
   #sound-btn { top: calc(var(--s) * 34px); bottom: auto; right: calc(var(--s) * 30px); }
 }
 
-#menu { display: flex; flex-direction: column; gap: calc(var(--s) * 3px); margin: 0 0 calc(var(--s) * 6px); }
-#menu:empty { display: none; }
-#menu button {
+/* ---------- menus ---------- */
+.menu { display: flex; flex-direction: column; align-items: stretch; margin: 0 0 calc(var(--s) * 4px); min-width: calc(var(--s) * 150px); max-width: calc(var(--s) * 300px); }
+.menu-title, .menu-text { text-align: center; align-self: center; }
+.menu:empty { display: none; }
+.menu-title { font-family: 'Silkscreen', monospace; font-size: calc(var(--s) * 8px); color: #ffd36b; margin: 0 0 calc(var(--s) * 4px); letter-spacing: 0.08em; }
+.menu-text { font-size: calc(var(--s) * 6.5px); color: #cfe0e2; margin: 0 0 calc(var(--s) * 3px); max-width: calc(var(--s) * 280px); line-height: 1.35; }
+.menu-list {
+  display: flex; flex-direction: column; gap: calc(var(--s) * 2.5px); width: 100%; align-items: stretch;
+  max-height: calc(var(--s) * 128px); overflow-y: auto; padding: calc(var(--s) * 1px) calc(var(--s) * 3px);
+  scrollbar-width: thin; scrollbar-color: rgba(255, 211, 107, 0.4) transparent;
+}
+.menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: calc(var(--s) * 6px);
   font-family: 'Silkscreen', monospace;
-  font-size: calc(var(--s) * 7px);
-  background: rgba(5, 15, 20, 0.5);
+  font-size: calc(var(--s) * 6.5px);
+  background: rgba(5, 15, 20, 0.88);
   color: #a9bcc2;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 4px;
-  padding: calc(var(--s) * 2.5px) calc(var(--s) * 10px);
+  padding: calc(var(--s) * 2.5px) calc(var(--s) * 8px);
   cursor: pointer;
+  text-align: left;
 }
-#menu button.sel { color: #ffd36b; border-color: rgba(255, 211, 107, 0.6); background: rgba(40, 30, 10, 0.5); }
+.menu-item .label { flex: 1; }
+.menu-item .note { font-size: calc(var(--s) * 5px); color: #7b8f95; white-space: nowrap; }
+.menu-item .value { min-width: calc(var(--s) * 52px); text-align: center; color: #e8eef0; white-space: nowrap; }
+.menu-item .arrow { color: #7b8f95; padding: 0 calc(var(--s) * 2px); }
+.menu-item.sel { color: #ffd36b; border-color: rgba(255, 211, 107, 0.6); background: rgba(40, 30, 10, 0.92); }
+.menu-item.sel .note, .menu-item.sel .arrow { color: #d9b46a; }
+.menu-item:disabled { opacity: 0.4; cursor: default; }
+.menu-header { font-family: 'Silkscreen', monospace; font-size: calc(var(--s) * 5px); color: #7b8f95; margin: calc(var(--s) * 3px) 0 0; text-align: left; letter-spacing: 0.08em; }
+.menu-hint { font-family: 'Silkscreen', monospace; font-size: calc(var(--s) * 5px); color: #7b8f95; margin: 0 0 calc(var(--s) * 8px); }
+#title.sub-page .controls, #title.sub-page .tiny, #title.sub-page #title-sub { display: none; }
+#title.sub-page h1 { font-size: calc(var(--s) * 16px); margin-bottom: calc(var(--s) * 6px); }
+@media (pointer: coarse) { .menu-hint { display: none; } }
+
+/* ---------- ending and credits ---------- */
+#credits { background: linear-gradient(rgba(20, 10, 20, 0.05), rgba(20, 10, 20, 0.3)); cursor: pointer; }
+#credits h2 { color: #fff3d6; text-shadow: 0 0 calc(var(--s) * 6px) rgba(120, 60, 40, 0.7); }
+#credits .sub { color: #fff6e6; text-shadow: 0 1px 3px rgba(40, 20, 20, 0.9); font-size: calc(var(--s) * 7.5px); }
+#credits .paper { animation: rise 1.2s ease-out; }
+#credits .paper .from { font-style: italic; font-size: calc(var(--s) * 6px); color: #7a6448; margin-bottom: calc(var(--s) * 6px); }
+#credits .paper p { font-size: calc(var(--s) * 8px); line-height: 1.35; margin: 0 0 calc(var(--s) * 5px); }
+#credits .stats { color: #fff3d6; text-shadow: 0 1px 2px rgba(40, 20, 20, 0.9); }
+#credits .tiny { color: #f3e2cc; text-shadow: 0 1px 2px rgba(40, 20, 20, 0.9); }
+#credits-page {
+  display: flex; flex-direction: column; align-items: center; animation: rise 1.2s ease-out;
+  background: radial-gradient(ellipse at center, rgba(40, 20, 34, 0.62), rgba(40, 20, 34, 0.38) 70%, rgba(40, 20, 34, 0));
+  padding: calc(var(--s) * 10px) calc(var(--s) * 24px); border-radius: calc(var(--s) * 12px);
+}
+#credits-page:has(.paper) { background: none; }
+.credits-next { font-family: 'Silkscreen', monospace; font-size: calc(var(--s) * 5.5px); color: #fff3d6; text-shadow: 0 1px 2px rgba(40, 20, 20, 0.9); margin-top: calc(var(--s) * 8px); animation: pulse 1.6s ease-in-out infinite; }
+.roll { height: calc(var(--s) * 200px); overflow: hidden; position: relative; width: calc(var(--s) * 320px);
+  mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent); }
+.roll-inner { position: absolute; left: 0; right: 0; top: 100%; animation: roll 26s linear forwards; }
+.roll.done .roll-inner { animation: none; top: 0; transform: none; }
+.roll h3 { font-family: 'Silkscreen', monospace; font-weight: normal; font-size: calc(var(--s) * 6px); color: #ffe3a0; letter-spacing: 0.1em; margin: calc(var(--s) * 14px) 0 calc(var(--s) * 3px); text-shadow: 0 1px 2px rgba(40, 20, 20, 0.9); }
+.roll p { font-size: calc(var(--s) * 7.5px); color: #fff6e6; margin: 0 0 calc(var(--s) * 2px); text-shadow: 0 1px 3px rgba(40, 20, 20, 0.9); }
+.roll .big { font-family: 'Silkscreen', monospace; font-size: calc(var(--s) * 16px); color: #fff3d6; margin: 0 0 calc(var(--s) * 6px); }
+@keyframes roll { to { top: 0; transform: translateY(-100%); } }
+@keyframes rise { from { opacity: 0; transform: translateY(calc(var(--s) * 6px)); } }
 
 @keyframes pulse { 50% { opacity: 0.45; } }
 
@@ -181,6 +229,8 @@ h2 { font-size: calc(var(--s) * 16px); }
 #touch .small { width: 48px; height: 48px; font-size: 10px; margin-bottom: 70px; }
 #touch .hook { display: none; width: 56px; height: 56px; font-size: 11px; color: #e0c070; margin-bottom: 18px; }
 #touch.has-hook .hook { display: block; }
+#touch.idle { display: none; }
+@media (pointer: coarse) { #title .controls { display: none; } }
 #touch .dive { position: absolute; left: calc(56px + env(safe-area-inset-left)); bottom: calc(92px + env(safe-area-inset-bottom)); width: 48px; height: 48px; font-size: 14px; }
 
 @media (pointer: coarse) {

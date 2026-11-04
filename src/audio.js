@@ -32,6 +32,9 @@ export class Sound {
     this.underwater = false;
     this.ducked = false;
     this.ambientTimer = 0;
+    this.musicVol = 1; // from the options menu, 0..1
+    this.sfxVol = 1;
+    this.dawn = false;
   }
 
   // Browsers only allow audio after a key press or tap.
@@ -61,11 +64,11 @@ export class Sound {
     this.reverbOut.gain.value = 0.55;
     this.reverb.connect(this.reverbOut).connect(this.muffle);
 
-    this.sfx = this.bus(0.9, this.muffle);
+    this.sfx = this.bus(0.9 * this.sfxVol, this.muffle);
     this.sfxVerb = this.bus(0.25, this.reverb);
     this.sfx.connect(this.sfxVerb);
 
-    this.music = this.bus(0.32, this.muffle);
+    this.music = this.bus(0.32 * this.musicVol, this.muffle);
     this.musicVerb = this.bus(0.6, this.reverb);
     this.music.connect(this.musicVerb);
     this.musicEra = [this.bus(1, this.music), this.bus(0, this.music)];
@@ -80,7 +83,7 @@ export class Sound {
     this.glassEcho = this.bus(1, this.musicEra[NOW]); // dry signal...
     this.glassEcho.connect(this.bus(0.5, delay));      // ...plus an echo
 
-    this.amb = this.bus(0.9, this.muffle);
+    this.amb = this.bus(0.9 * this.sfxVol, this.muffle);
     this.ambEra = [this.bus(1, this.amb), this.bus(0, this.amb)];
 
     this.noise = this.makeNoise(3);
@@ -184,6 +187,13 @@ export class Sound {
     this.era = era;
     if (!this.ctx) return;
     const t = this.ctx.currentTime, k = instant ? 0.001 : 0.18;
+    if (this.dawn) {
+      // the ending: both bands together, softly, and no ambience
+      this.musicEra[NOW].gain.setTargetAtTime(0.7, t, 1.5);
+      this.musicEra[THEN].gain.setTargetAtTime(1.1, t, 1.5);
+      for (const e of [NOW, THEN]) this.ambEra[e].gain.setTargetAtTime(0, t, 0.8);
+      return;
+    }
     for (const e of [NOW, THEN]) {
       this.musicEra[e].gain.setTargetAtTime(e === era ? this.eraLevel[e] : 0, t, k);
       this.ambEra[e].gain.setTargetAtTime(e === era ? 1 : 0, t, k);
@@ -200,7 +210,24 @@ export class Sound {
   duck(on) {
     if (on === this.ducked || !this.ctx) return;
     this.ducked = on;
-    this.music.gain.setTargetAtTime(on ? 0.1 : 0.32, this.ctx.currentTime, 0.3);
+    this.music.gain.setTargetAtTime((on ? 0.1 : 0.32) * this.musicVol, this.ctx.currentTime, 0.3);
+  }
+
+  setVolumes(music, sfx) {
+    this.musicVol = music;
+    this.sfxVol = sfx;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.music.gain.setTargetAtTime((this.ducked ? 0.1 : 0.32) * music, t, 0.05);
+    this.sfx.gain.setTargetAtTime(0.9 * sfx, t, 0.05);
+    this.amb.gain.setTargetAtTime(0.9 * sfx, t, 0.05);
+  }
+
+  // The ending: the storm and the sea fall quiet, the clock stops, gulls.
+  setDawn(on) {
+    this.dawn = on;
+    if (on) this.boss = false;
+    this.setEra(this.era, !on);
   }
 
   // During the boss fight: drums and a driving bass join the music.
@@ -250,6 +277,10 @@ export class Sound {
     this.ambientTimer -= dt;
     if (this.ambientTimer > 0) return;
     this.ambientTimer = 0.6 + Math.random() * 2.2;
+    if (this.dawn) {
+      if (Math.random() < 0.45) SFX.gull(this);
+      return;
+    }
     if (this.era === NOW) {
       const f = 900 + Math.random() * 900;
       if (Math.random() < 0.6) this.tone({ f0: f, f1: f * 1.6, dur: 0.07, vol: 0.05, dest: this.ambEra[NOW] }); // drip
@@ -319,8 +350,8 @@ export class Sound {
       if (step % 8 === 4) this.hiss({ type: 'bandpass', f0: 1800, q: 0.8, dur: 0.18, vol: 0.18, attack: 0.002, when, dest: this.music }); // snare
       this.tone({ type: 'sawtooth', f0: midi(chord.root + (step % 4 === 3 ? 7 : 0)), dur: eighth * 0.9, vol: 0.05, attack: 0.005, when, dest: this.music });
     }
-    // the clock in THEN: tick ... tock
-    if (step % 2 === 0) {
+    // the clock in THEN: tick ... tock (until the watch stops)
+    if (step % 2 === 0 && !this.dawn) {
       const tock = step % 4 === 2;
       this.hiss({ type: 'bandpass', f0: tock ? 2200 : 3400, q: 8, dur: 0.035, vol: 0.06, attack: 0.001, when, dest: THENB });
     }
@@ -472,6 +503,75 @@ const SFX = {
   bossDie: (s) => {
     s.tone({ type: 'sawtooth', f0: 300, f1: 40, dur: 2.4, vol: 0.12, attack: 0.05 });
     s.bellTone(midi(41), { dur: 4, vol: 0.2, dest: s.sfxVerb });
+  },
+  // ---------- Stage 3 ----------
+  push: (s) => {
+    s.hiss({ type: 'bandpass', f0: 380, f1: 260, q: 2.5, dur: 0.22, vol: 0.22, attack: 0.03 });
+    s.tone({ type: 'sawtooth', f0: 55, f1: 48, dur: 0.2, vol: 0.05, attack: 0.03 });
+  },
+  crateLand: (s, k = 1) => {
+    s.tone({ f0: 120, f1: 40, dur: 0.3, vol: 0.3 * (0.4 + 0.6 * k) });
+    s.hiss({ type: 'lowpass', f0: 900, f1: 100, dur: 0.25, vol: 0.3 * (0.4 + 0.6 * k), attack: 0.002 });
+    s.tone({ type: 'square', f0: 240, dur: 0.05, vol: 0.03 });
+  },
+  plate: (s, on) => {
+    s.tone({ type: 'square', f0: on ? 520 : 380, f1: on ? 380 : 520, dur: 0.06, vol: 0.05 });
+    s.hiss({ type: 'highpass', f0: 3000, dur: 0.03, vol: 0.08, attack: 0.001 });
+  },
+  door: (s, open) => {
+    s.tone({ type: 'sawtooth', f0: open ? 60 : 90, f1: open ? 90 : 55, dur: 0.7, vol: 0.08, attack: 0.05 });
+    s.hiss({ type: 'lowpass', f0: 500, f1: 150, dur: 0.7, vol: 0.2, attack: 0.05 });
+    for (let i = 0; i < 6; i++) s.hiss({ type: 'bandpass', f0: 1600, q: 5, dur: 0.025, vol: 0.08, attack: 0.001, when: i * 0.1 });
+  },
+  lever: (s) => {
+    for (let i = 0; i < 4; i++) s.hiss({ type: 'bandpass', f0: 2000 - i * 200, q: 6, dur: 0.025, vol: 0.15, attack: 0.001, when: i * 0.06 });
+    s.tone({ type: 'square', f0: 140, f1: 70, dur: 0.15, vol: 0.08, when: 0.26 });
+    s.hiss({ type: 'lowpass', f0: 800, f1: 120, dur: 0.2, vol: 0.3, when: 0.26 });
+  },
+  damp: (s) => {
+    s.bellTone(midi(43), { dur: 2.5, vol: 0.2, dest: s.sfxVerb });
+    s.hiss({ type: 'lowpass', f0: 600, f1: 80, dur: 0.6, vol: 0.4, attack: 0.002 });
+    s.tone({ f0: 90, f1: 30, dur: 0.8, vol: 0.3 });
+  },
+  bellWake: (s) => {
+    s.tone({ type: 'sawtooth', f0: 36, f1: 72, dur: 2.2, vol: 0.1, attack: 0.8 });
+    s.bellTone(midi(33), { dur: 7, vol: 0.32, when: 0.9, dest: s.sfxVerb });
+    s.bellTone(midi(57), { dur: 4, vol: 0.12, when: 1.6, dest: s.sfxVerb });
+  },
+  echoWind: (s) => {
+    s.tone({ f0: 1760, f1: 440, dur: 1.3, vol: 0.06, attack: 1.0 });
+    s.tone({ type: 'triangle', f0: 1320, f1: 330, dur: 1.3, vol: 0.04, attack: 1.0 });
+    s.hiss({ type: 'bandpass', f0: 6000, f1: 1500, q: 3, dur: 1.3, vol: 0.06, attack: 1.0 });
+  },
+  echoToll: (s) => {
+    // the same bell, heard from fifty years away and under water: high, glassy, reversed-sounding
+    s.bellTone(midi(62), { dur: 4, vol: 0.28, dest: s.sfxVerb });
+    s.bellTone(midi(74), { dur: 2.5, vol: 0.12 });
+    s.hiss({ type: 'highpass', f0: 4000, dur: 0.6, vol: 0.12, attack: 0.3 });
+  },
+  bellSilence: (s) => {
+    s.tone({ f0: 70, f1: 30, dur: 2, vol: 0.4 });
+    s.hiss({ type: 'lowpass', f0: 300, f1: 40, dur: 2.5, vol: 0.4, attack: 0.002 });
+    s.bellTone(midi(38), { dur: 1.2, vol: 0.12 }); // muffled: short and dull
+  },
+  distantWind: (s) => {
+    s.tone({ f0: 80, f1: 220, dur: 1.4, vol: 0.06, attack: 1.1 });
+    s.hiss({ type: 'lowpass', f0: 200, f1: 600, dur: 1.4, vol: 0.12, attack: 1.1 });
+  },
+  distantToll: (s) => {
+    s.bellTone(midi(33), { dur: 6, vol: 0.3, dest: s.sfxVerb });
+    s.hiss({ type: 'lowpass', f0: 250, f1: 50, dur: 1.5, vol: 0.25 });
+  },
+  dawn: (s) => {
+    s.hiss({ type: 'highpass', f0: 2000, f1: 8000, dur: 2.5, vol: 0.12, attack: 1.5 });
+    [62, 69, 74, 78, 81, 86].forEach((n, i) => s.tone({ type: 'triangle', f0: midi(n), dur: 3, vol: 0.06, attack: 0.02, when: 0.6 + i * 0.18, dest: s.sfxVerb }));
+    s.bellTone(midi(74), { dur: 5, vol: 0.1, when: 1.8, dest: s.sfxVerb });
+  },
+  gull: (s) => {
+    const f = 1400 + Math.random() * 500;
+    for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) {
+      s.tone({ type: 'triangle', f0: f, f1: f * 0.7, dur: 0.22, vol: 0.025, attack: 0.03, when: i * 0.28, dest: s.sfxVerb });
+    }
   },
   bossFall: (s) => s.hiss({ type: 'bandpass', f0: 400, f1: 1600, q: 0.7, dur: 0.8, vol: 0.15, attack: 0.3 }),
   crash: (s) => {

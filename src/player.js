@@ -58,6 +58,8 @@ export class Player {
     this.stepT = 0;
     this.stepAlt = false;
     this.hook = null;   // { anchor, len, t } while swinging on the harpoon line
+    this.lastAnchor = null; // the ring you just let go of, so the next shot picks a new one
+    this.lastAnchorT = 0;
   }
 
   attach(anchor) {
@@ -70,6 +72,8 @@ export class Player {
 
   detach(event = 'unhook') {
     if (!this.hook) return;
+    this.lastAnchor = this.hook.anchor;
+    this.lastAnchorT = 0.5;
     this.hook = null;
     this.events.push(event);
   }
@@ -126,6 +130,7 @@ export class Player {
     this.leap = Math.max(0, this.leap - dt);
     this.knock = Math.max(0, this.knock - dt);
     this.invuln = Math.max(0, this.invuln - dt);
+    this.lastAnchorT = Math.max(0, this.lastAnchorT - dt);
 
     // On the harpoon line
     if (this.hook) {
