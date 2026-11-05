@@ -30,7 +30,7 @@ Finishing a stage unlocks it on the title screen, so you can continue later.
 | Harpoon | C / J | B / triggers | HOOK |
 | Climb / lower the line | Up / Down | Up / Down | ▲ ▼ |
 | Use | E / Up | Y | USE |
-| Pause | Esc / P | Start | II |
+| Pause (resume or quit to title) | Esc / P | Start | II |
 | Sound on/off | M | | SOUND button |
 
 ## Sound

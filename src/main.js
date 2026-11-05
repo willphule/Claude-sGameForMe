@@ -99,6 +99,7 @@ class Game {
     this.sound.duck(s === 'note' || s === 'paused' || s === 'end');
     this.state = s;
     if (s === 'title') this.buildMenu();
+    if (s === 'paused') { this.pauseIndex = 0; this.movePause(0); }
     $('title').classList.toggle('hidden', s !== 'title');
     $('note').classList.toggle('hidden', s !== 'note');
     $('pause').classList.toggle('hidden', s !== 'paused');
@@ -122,7 +123,10 @@ class Game {
         if (this.noteTimer > 0.35 && inp.anyPressed('jump', 'interact', 'pause')) this.closeNote();
         break;
       case 'paused':
-        if (inp.anyPressed('pause', 'jump', 'interact')) this.setState('play');
+        if (inp.pressed('pause')) { this.setState('play'); break; }
+        if (inp.pressed('up') || inp.pressed('left')) this.movePause(-1);
+        if (inp.pressed('down') || inp.pressed('right')) this.movePause(1);
+        if (inp.anyPressed('jump', 'interact')) this.choosePause(this.pauseIndex);
         break;
       case 'end':
         this.endTimer += dt;
@@ -493,6 +497,25 @@ class Game {
     this.setState('play');
   }
 
+  // ---------- pause menu ----------
+
+  movePause(d) {
+    const items = [...$('pause-menu').children];
+    if (d) this.sound.play('ui');
+    this.pauseIndex = (this.pauseIndex + d + items.length) % items.length;
+    items.forEach((b, i) => b.classList.toggle('sel', i === this.pauseIndex));
+  }
+
+  choosePause(i) {
+    if (this.state !== 'paused') return;
+    if ($('pause-menu').children[i].dataset.act === 'quit') {
+      this.loadStage(this.stageIndex); // a fresh start, so the title shows the stage's opening and its music
+      this.setState('title');
+    } else {
+      this.setState('play');
+    }
+  }
+
   // ---------- effects ----------
 
   shake(time, amp) { this.shakeT = Math.max(this.shakeT, time); this.shakeAmp = amp; }
@@ -707,6 +730,8 @@ class Game {
   }
 
   renderHUD() {
+    ctx.fillStyle = 'rgba(5,15,20,0.6)';
+    ctx.fillRect(6, 6, 64, this.hasHarpoon ? 48 : 36);
     ctx.save();
     ctx.scale(2, 2);
     for (let i = 0; i < this.maxHearts; i++) drawHeart(ctx, 5 + i * 9, 5, i < this.hearts);
@@ -784,6 +809,8 @@ function setupTouch(game) {
   $('title').addEventListener('click', () => game.state === 'title' && game.chooseMenu(game.menuIndex));
   $('note').addEventListener('click', () => game.state === 'note' && game.noteTimer > 0.35 && game.closeNote());
   $('pause').addEventListener('click', () => game.state === 'paused' && game.setState('play'));
+  [...$('pause-menu').children].forEach((b, i) => b.addEventListener('click', (e) => { e.stopPropagation(); game.choosePause(i); }));
+  if (isTouch) $('pause-keys').hidden = true;
   $('end').addEventListener('click', () => game.state === 'end' && game.endTimer > 1 && game.afterEnd());
   $('pause-btn').addEventListener('click', (e) => { e.stopPropagation(); if (game.state === 'play') game.setState('paused'); });
 }
