@@ -23,6 +23,10 @@ const ENDING_TIME = 2.6;
 const PROGRESS_KEY = 'drownedbell-progress';
 function loadProgress() { try { return Math.min(STAGES.length - 1, Number(localStorage.getItem(PROGRESS_KEY)) || 0); } catch { return 0; } }
 function saveProgress(i) { try { localStorage.setItem(PROGRESS_KEY, String(i)); } catch { /* storage unavailable */ } }
+const bestKey = (i) => `drownedbell-best-${i}`;
+function loadBest(i) { try { return Number(localStorage.getItem(bestKey(i))) || 0; } catch { return 0; } }
+function saveBest(i, t) { try { localStorage.setItem(bestKey(i), String(t)); } catch { /* storage unavailable */ } }
+const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
 class Game {
   constructor() {
@@ -434,15 +438,17 @@ class Game {
     this.fx.ring(p.cx, p.cy - 6, '159,246,255', 160, 2.2, 3);
     this.fx.ring(p.cx, p.cy - 6, '159,246,255', 90, 1.5, 2);
     this.fx.bubbles(p.cx, p.cy, 10);
-    const m = Math.floor(this.time / 60), s = Math.floor(this.time % 60);
     const [found, total] = this.noteCount();
+    const best = loadBest(this.stageIndex);
+    const newBest = !best || this.time < best;
+    if (newBest) saveBest(this.stageIndex, this.time);
     const next = this.stageIndex + 1 < STAGES.length;
     if (next && this.progress < this.stageIndex + 1) { this.progress = this.stageIndex + 1; saveProgress(this.progress); }
     $('end-title').textContent = this.stage.ending.title;
     $('end-text').textContent = this.stage.ending.text;
     $('end-banner').textContent = `End of Stage ${this.stageIndex + 1}`;
     $('end-stats').textContent =
-      `Time ${m}:${String(s).padStart(2, '0')}  ·  Notes ${found}/${total}  ·  Falls ${this.deaths}`;
+      `Time ${clock(this.time)}${newBest ? (best ? '  (new best!)' : '') : `  (best ${clock(best)})`}  ·  Notes ${found}/${total}  ·  Falls ${this.deaths}`;
     $('end-next').textContent = next
       ? `Press Jump or tap to continue to Stage ${this.stageIndex + 2}`
       : 'Stage 3 is still being written. Press Jump or tap to return to the title.';
@@ -836,6 +842,10 @@ function setupSound(game) {
     if (document.hidden) c.suspend();
     else c.resume();
   });
+  // pause when the player switches away, so nothing hurts them while they're gone
+  const autoPause = () => { if (game.state === 'play' && game.ending <= 0) game.setState('paused'); };
+  addEventListener('blur', autoPause);
+  document.addEventListener('visibilitychange', () => document.hidden && autoPause());
   btn.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
   btn.addEventListener('pointerdown', (e) => e.stopPropagation());
   show();

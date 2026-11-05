@@ -17,7 +17,8 @@ that fell after the flood blocks the way in NOW. Changes you make in THEN carry 
    that only wakes in THEN. When its hammer sticks in the floor, its key is exposed: get above it and land on it.
    When it tolls, turn the watch.
 
-Finishing a stage unlocks it on the title screen, so you can continue later.
+Finishing a stage unlocks it on the title screen, so you can continue later. Your best time for each stage is
+saved and shown when you finish it again. The game pauses itself if you switch to another window or tab.
 
 ## Controls
 
