@@ -139,7 +139,8 @@ h2 { font-size: calc(var(--s) * 16px); }
 
 #menu { display: flex; flex-direction: column; gap: calc(var(--s) * 3px); margin: 0 0 calc(var(--s) * 6px); }
 #menu:empty { display: none; }
-#menu button {
+#pause-menu { display: flex; flex-direction: column; gap: calc(var(--s) * 3px); margin: 0 0 calc(var(--s) * 6px); }
+#menu button, #pause-menu button {
   font-family: 'Silkscreen', monospace;
   font-size: calc(var(--s) * 7px);
   background: rgba(5, 15, 20, 0.5);
@@ -149,7 +150,7 @@ h2 { font-size: calc(var(--s) * 16px); }
   padding: calc(var(--s) * 2.5px) calc(var(--s) * 10px);
   cursor: pointer;
 }
-#menu button.sel { color: #ffd36b; border-color: rgba(255, 211, 107, 0.6); background: rgba(40, 30, 10, 0.5); }
+#menu button.sel, #pause-menu button.sel { color: #ffd36b; border-color: rgba(255, 211, 107, 0.6); background: rgba(40, 30, 10, 0.5); }
 
 @keyframes pulse { 50% { opacity: 0.45; } }
 

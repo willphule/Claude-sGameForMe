@@ -5,7 +5,7 @@ import { STORY } from './story.js';
 
 // World hints, in tile coordinates. `touch` replaces the text on phones and tablets.
 const HINTS1 = [
-  { tx: 1.3, ty: 15.4, lines: ['ARROWS / WASD  move', 'Z / SPACE  jump', '(hold for higher)'], touch: ['Hold JUMP for', 'a higher jump'] },
+  { tx: 1.3, ty: 17.4, lines: ['ARROWS / WASD  move', 'Z / SPACE  jump', '(hold for higher)'], touch: ['Hold JUMP for', 'a higher jump'] },
   { tx: 12, ty: 19.2, lines: ['In water: hold jump', 'to swim up'] },
   { tx: 22.3, ty: 16.6, lines: ['X / SHIFT', 'turn the watch'], touch: ['Tap the watch', 'button'], cond: (g) => g.hasWatch },
   { tx: 41, ty: 4.5, lines: ['The watch can be', 'turned mid-jump'], cond: (g) => g.hasWatch },

@@ -41,7 +41,18 @@
 
     <div id="pause" class="overlay hidden">
       <h2>Paused</h2>
-      <p class="start">Press Jump or tap to resume</p>
+      <div id="pause-menu">
+        <button data-act="resume">Resume</button>
+        <button data-act="quit">Quit to title</button>
+      </div>
+      <div id="pause-keys" class="controls">
+        <span><b>Arrows / WASD</b> move</span>
+        <span><b>Z / Space</b> jump · swim</span>
+        <span><b>X / Shift</b> turn the watch</span>
+        <span><b>C / J</b> harpoon</span>
+        <span><b>E / Up</b> use</span>
+        <span><b>M</b> sound on/off</span>
+      </div>
     </div>
 
     <div id="end" class="overlay hidden">

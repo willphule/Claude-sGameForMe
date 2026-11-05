@@ -17,7 +17,8 @@ that fell after the flood blocks the way in NOW. Changes you make in THEN carry 
    that only wakes in THEN. When its hammer sticks in the floor, its key is exposed: get above it and land on it.
    When it tolls, turn the watch.
 
-Finishing a stage unlocks it on the title screen, so you can continue later.
+Finishing a stage unlocks it on the title screen, so you can continue later. Your best time for each stage is
+saved and shown when you finish it again. The game pauses itself if you switch to another window or tab.
 
 ## Controls
 
@@ -30,7 +31,7 @@ Finishing a stage unlocks it on the title screen, so you can continue later.
 | Harpoon | C / J | B / triggers | HOOK |
 | Climb / lower the line | Up / Down | Up / Down | ▲ ▼ |
 | Use | E / Up | Y | USE |
-| Pause | Esc / P | Start | II |
+| Pause (resume or quit to title) | Esc / P | Start | II |
 | Sound on/off | M | | SOUND button |
 
 ## Sound
